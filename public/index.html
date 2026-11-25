@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5ef">
+  <meta name="description" content="弈间五子棋，和好友进同一间棋室，双方准备即可实时开局。">
+  <title>弈间 · 在线五子棋</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <button class="brand" type="button" data-action="lobby" aria-label="弈间大厅">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
+        <span>弈间<small>在线五子棋</small></span>
+      </button>
+      <nav class="main-nav" aria-label="主导航">
+        <button class="nav-link current" type="button" data-action="lobby" aria-current="page">对弈大厅</button>
+        <button class="nav-link" type="button" data-action="rules">游戏规则</button>
+      </nav>
+      <button class="profile" type="button" data-action="profile" data-network disabled aria-label="编辑昵称">
+        <span class="profile-icon" data-icon="user" aria-hidden="true"></span>
+        <span id="profile-name">访客</span>
+        <span class="profile-edit" data-icon="edit" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
+
+  <main class="shell" id="main">
+    <div id="lobby">
+      <section class="hero" aria-labelledby="hero-title">
+        <img class="hero-image" src="/chessroom.webp" alt="" width="2172" height="724" fetchpriority="high">
+        <div class="hero-content">
+          <p class="hero-kicker"><span></span> 双人实时对弈</p>
+          <h1 id="hero-title">五子棋大厅</h1>
+          <p class="hero-copy">选一间棋室，和朋友下一局。</p>
+          <div class="hero-actions">
+            <button class="button hero-primary" type="button" data-action="create" data-network disabled><span data-icon="plus"></span>创建房间</button>
+            <button class="button hero-secondary" type="button" data-action="quick" data-network disabled><span data-icon="zap"></span>快速加入</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="lobby-layout">
+        <section class="rooms-section" aria-labelledby="rooms-title">
+          <div class="section-heading">
+            <div><h2 id="rooms-title">房间列表</h2><p>挑一间棋室，入座等一位棋友。</p></div>
+            <span class="online" id="online"><i></i><span>正在连接</span></span>
+          </div>
+          <div class="room-list-panel">
+            <div class="list-tools">
+              <div class="filter" role="group" aria-label="筛选房间">
+                <button type="button" data-action="filter" data-filter="all" aria-pressed="true">全部房间</button>
+                <button type="button" data-action="filter" data-filter="open" aria-pressed="false">可加入</button>
+              </div>
+              <label class="search"><span data-icon="search" aria-hidden="true"></span><input id="room-search" type="search" placeholder="搜索房间名或房间号" aria-label="搜索房间名或房间号" autocomplete="off"></label>
+            </div>
+            <div class="room-list" id="room-list" aria-busy="true"><p class="empty-state">正在载入房间…</p></div>
+            <div class="list-foot"><span id="room-count">房间载入中</span><button class="link-button" type="button" data-action="enter-code" data-network disabled>用房间号加入<span data-icon="arrow-right"></span></button></div>
+          </div>
+        </section>
+
+        <aside class="guide" aria-labelledby="guide-title">
+          <div class="guide-heading"><span class="guide-emblem" data-icon="book" aria-hidden="true"></span><h2 id="guide-title">如何开局</h2></div>
+          <ol class="guide-steps">
+            <li><span class="step-icon" data-icon="door" aria-hidden="true"></span><div><h3>进入房间</h3><p>从大厅挑选棋室，或创建一间邀请好友。</p></div></li>
+            <li><span class="step-icon" data-icon="check" aria-hidden="true"></span><div><h3>双方准备</h3><p>两位棋手入座后，分别点击「准备」。</p></div></li>
+            <li><span class="step-icon" data-icon="grid" aria-hidden="true"></span><div><h3>开始对弈</h3><p>黑棋先行，率先连成五子的一方获胜。</p></div></li>
+          </ol>
+          <button class="link-button guide-link" type="button" data-action="rules">查看游戏规则<span data-icon="arrow-right"></span></button>
+        </aside>
+      </div>
+    </div>
+
+    <section id="room-view" class="room-view" aria-labelledby="room-title" hidden>
+      <div class="room-topline">
+        <button type="button" class="link-button back-link" data-action="lobby"><span data-icon="arrow-left"></span>返回大厅</button>
+        <span id="room-code" class="room-code"></span>
+      </div>
+      <div class="room-heading">
+        <div><h1 id="room-title" tabindex="-1"></h1><p>自由五子棋 <span aria-hidden="true">·</span> 15 × 15 棋盘</p></div>
+        <button type="button" class="button button-outline" data-action="invite"><span data-icon="link"></span>复制邀请</button>
+      </div>
+      <div class="game-layout">
+        <div class="board-card">
+          <div class="board-toolbar"><span id="board-state" class="game-chip"><i></i><span>等待开局</span></span><span id="move-count">第 0 手</span></div>
+          <div class="wood-board">
+            <div class="board-axis axis-top" id="columns" aria-hidden="true"></div>
+            <div class="board-axis axis-left" id="rows" aria-hidden="true"></div>
+            <div id="board" class="board" role="group" aria-label="五子棋棋盘，使用方向键移动，按回车落子"></div>
+          </div>
+        </div>
+        <aside class="game-side">
+          <section class="game-panel" aria-labelledby="players-title">
+            <h2 id="players-title">对弈棋手</h2>
+            <div id="seats"></div>
+            <div class="match-status" id="match-status" role="status"></div>
+            <button type="button" class="button button-primary ready-button" id="ready-button" data-action="ready" data-network><span data-icon="check"></span><span>准备</span></button>
+          </section>
+          <button type="button" class="link-button leave-link" data-action="lobby"><span data-icon="door"></span>退出房间</button>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell footer"><span>弈间 <i>·</i> 在线五子棋</span><button type="button" class="link-button" data-action="rules">游戏规则</button></footer>
+
+  <dialog id="dialog" aria-labelledby="dialog-title">
+    <div class="dialog-inner">
+      <div class="dialog-heading"><h2 id="dialog-title"></h2><button class="icon-button" type="button" data-action="close" aria-label="关闭" data-icon="close"></button></div>
+      <div id="dialog-content"></div>
+      <form id="dialog-form">
+        <div id="dialog-field"><label for="dialog-input"></label><input id="dialog-input" name="value" type="text" autocomplete="off"></div>
+        <p id="dialog-error" class="dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button class="button button-outline" type="button" data-action="close">取消</button><button class="button button-primary" id="dialog-submit" type="submit"></button></div>
+      </form>
+    </div>
+  </dialog>
+  <div id="toast" role="status" class="toast" hidden></div>
+</body>
+</html>
