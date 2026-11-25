@@ -410,7 +410,7 @@ function render() {
     profile.setAttribute('aria-label', account ? '账号与昵称' : '登录');
     $('#profile-login-label').hidden = Boolean(account);
     $('#account-name').hidden = !account;
-    $('#account-name').textContent = account ? `Sub2API · ${account.username}` : '';
+    $('#account-name').textContent = account ? `智算账号 · ${account.username}` : '';
     $('#account-login').hidden = Boolean(account);
     $('#account-logout').hidden = !account;
     const avatar = $('#profile-avatar');
@@ -522,8 +522,8 @@ function setAuthStep(step) {
   authCode.disabled = !totp;
   authCode.value = '';
   authError.hidden = true;
-  $('#auth-title').textContent = totp ? '完成二次验证' : '使用 Sub2API 登录';
-  $('#auth-copy').textContent = totp ? '请输入 Sub2API 账号在身份验证器中的动态验证码。' : '使用你在智算 API 的邮箱和密码登录弈间。';
+  $('#auth-title').textContent = totp ? '完成二次验证' : '使用智算账号登录';
+  $('#auth-copy').textContent = totp ? '请输入身份验证器中智算账号的 6 位动态验证码。' : '输入你的智算账号邮箱和密码。';
   authSubmit.textContent = totp ? '验证并登录' : '登录';
   if (authDialog.open) (totp ? authCode : authEmail).focus();
 }
@@ -555,7 +555,7 @@ authForm.addEventListener('submit', async event => {
     if (result.requiresTotp) setAuthStep('totp');
     else {
       authDialog.close();
-      toast('已登录 Sub2API 账号');
+      toast('已登录智算账号');
     }
   } catch (error) {
     authError.textContent = error.message;

@@ -66,7 +66,7 @@ impl Sub2Api {
         let unavailable = || {
             ApiError(
                 StatusCode::BAD_GATEWAY,
-                "暂时无法连接 Sub2API，请稍后重试。",
+                "暂时无法连接智算登录服务，请稍后重试。",
             )
         };
         let response = request.send().await.map_err(|_| unavailable())?;
@@ -83,9 +83,9 @@ impl Sub2Api {
                 "login/2fa" => ApiError(StatusCode::UNAUTHORIZED, "验证码无效或已过期，请重试。"),
                 "login" => ApiError(
                     StatusCode::UNAUTHORIZED,
-                    "Sub2API 登录未通过，请核对邮箱、密码及账号状态。",
+                    "智算账号登录未通过，请核对邮箱、密码及账号状态。",
                 ),
-                _ => ApiError(StatusCode::BAD_GATEWAY, "暂时无法读取 Sub2API 用户资料。"),
+                _ => ApiError(StatusCode::BAD_GATEWAY, "暂时无法读取智算账号资料。"),
             });
         }
         Ok(result["data"].take())
@@ -97,7 +97,7 @@ impl Sub2Api {
             .filter(|value| !value.is_empty())
             .ok_or(ApiError(
                 StatusCode::BAD_GATEWAY,
-                "Sub2API 未返回有效的登录凭据。",
+                "智算登录服务未返回有效的登录凭据。",
             ))?;
         let profile = self.request("me", None, Some(token)).await?;
         let id = profile["id"]
@@ -105,7 +105,7 @@ impl Sub2Api {
             .filter(|id| *id > 0 && *id <= 9_007_199_254_740_991)
             .ok_or(ApiError(
                 StatusCode::BAD_GATEWAY,
-                "Sub2API 未返回有效的用户 ID。",
+                "智算登录服务未返回有效的用户 ID。",
             ))?;
         let name: String = profile["username"]
             .as_str()
@@ -148,7 +148,7 @@ impl Sub2Api {
                 .filter(|value| !value.is_empty())
                 .ok_or(ApiError(
                     StatusCode::BAD_GATEWAY,
-                    "Sub2API 未返回有效的二次验证凭据。",
+                    "智算登录服务未返回有效的二次验证凭据。",
                 ))?;
             return Ok(AuthResult::Challenge(token.into()));
         }
