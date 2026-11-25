@@ -20,9 +20,10 @@
         <button class="nav-link current" type="button" data-action="lobby" aria-current="page">对弈大厅</button>
         <button class="nav-link" type="button" data-action="rules">游戏规则</button>
       </nav>
-      <button class="profile" type="button" data-action="profile" data-network disabled aria-label="编辑昵称">
-        <span class="profile-icon" data-icon="user" aria-hidden="true"></span>
+      <button class="profile" type="button" data-action="profile" data-network disabled aria-label="登录">
+        <span class="profile-icon" aria-hidden="true"><span data-icon="user"></span><img id="profile-avatar" alt="" referrerpolicy="no-referrer" hidden></span>
         <span id="profile-name">访客</span>
+        <span id="profile-login-label" class="profile-login-label">登录</span>
         <span class="profile-edit" data-icon="edit" aria-hidden="true"></span>
       </button>
     </div>
@@ -125,11 +126,32 @@
     <div class="dialog-inner">
       <div class="dialog-heading"><h2 id="dialog-title"></h2><button class="icon-button" type="button" data-action="close" aria-label="关闭" data-icon="close"></button></div>
       <div id="dialog-content"></div>
+      <div id="account-summary" class="account-summary" hidden>
+        <span id="account-name" hidden></span>
+        <button id="account-login" class="link-button" type="button" data-action="sign-in">登录账号</button>
+        <button id="account-logout" class="link-button" type="button" data-action="sign-out" hidden>退出登录</button>
+      </div>
       <form id="dialog-form">
         <div id="dialog-field"><label for="dialog-input"></label><input id="dialog-input" name="value" type="text" autocomplete="off"></div>
         <p id="dialog-error" class="dialog-error" role="alert" hidden></p>
         <div class="dialog-actions"><button class="button button-outline" type="button" data-action="close">取消</button><button class="button button-primary" id="dialog-submit" type="submit"></button></div>
       </form>
+    </div>
+  </dialog>
+  <dialog id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-copy">
+    <div class="dialog-inner">
+      <div class="dialog-heading"><h2 id="auth-title">使用 Sub2API 登录</h2><button class="icon-button" type="button" data-action="close-auth" aria-label="关闭登录" data-icon="close"></button></div>
+      <p id="auth-copy"></p>
+      <form id="auth-form" method="post">
+        <div id="auth-credentials" class="auth-fields">
+          <div><label for="auth-email">邮箱</label><input id="auth-email" name="email" type="email" autocomplete="username" required></div>
+          <div><label for="auth-password">密码</label><input id="auth-password" name="password" type="password" autocomplete="current-password" required></div>
+        </div>
+        <div id="auth-totp" class="auth-fields" hidden><div><label for="auth-code">动态验证码</label><input id="auth-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required disabled></div></div>
+        <p id="auth-error" class="dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button id="auth-back" class="button button-outline" type="button" data-action="auth-back" hidden>返回登录</button><button id="auth-submit" class="button button-primary" type="submit">登录</button></div>
+      </form>
+      <div id="auth-footer" class="auth-footer"><a href="https://zhisuanapi.cn/register" target="_blank" rel="noopener noreferrer">没有账号？去智算 API 注册</a><button class="link-button" type="button" data-action="guest-profile">以访客身份改昵称</button></div>
     </div>
   </dialog>
   <div id="toast" role="status" class="toast" hidden></div>

@@ -31,6 +31,13 @@ const dialogTitle = $('#dialog-title');
 const dialogInput = $('#dialog-input');
 const dialogSubmit = $('#dialog-submit');
 const dialogError = $('#dialog-error');
+const authDialog = $('#auth-dialog');
+const authForm = $('#auth-form');
+const authEmail = $('#auth-email');
+const authPassword = $('#auth-password');
+const authCode = $('#auth-code');
+const authError = $('#auth-error');
+const authSubmit = $('#auth-submit');
 const readyButton = $('#ready-button');
 const guidanceLog = $('#guidance-log');
 const guidanceInput = $('#guidance-input');
@@ -55,6 +62,8 @@ let renderedRooms = '';
 let filter = 'all';
 let boardFocus = 112;
 let dialogAction = null;
+let authBusy = false;
+let authStep = 'credentials';
 let toastTimeout;
 const linkParams = new URL(location.href).searchParams;
 let requestedRoom = linkParams.get('room');
@@ -366,7 +375,7 @@ function renderRoom(room) {
     const label = !person ? '空座' : !person.online ? '重连中' : playing ? active ? '落子中' : '等待落子' : person.ready ? '已准备' : '未准备';
     return `<div class="seat ${mine ? 'mine' : ''} ${person ? '' : 'vacant'}">
       <div class="seat-piece" aria-hidden="true"><i class="stone-disc ${index ? 'white' : ''}"></i></div>
-      <div><div class="seat-name">${person ? escapeHTML(person.name) : '等待加入'}</div><div class="seat-color">${index ? '白棋' : '黑棋'}${mine ? ' · 你' : ''}</div></div>
+      <div><div class="seat-name">${person?.avatar ? `<img src="${escapeHTML(person.avatar)}" alt="" referrerpolicy="no-referrer">` : ''}${person ? escapeHTML(person.name) : '等待加入'}</div><div class="seat-color">${index ? '白棋' : '黑棋'}${mine ? ' · 你' : ''}</div></div>
       <span class="seat-state ${active && person?.online ? 'highlight' : ''}">${label}</span>
     </div>`;
   }).join('');
@@ -394,7 +403,24 @@ function renderRoom(room) {
 
 function render() {
   for (const button of document.querySelectorAll('[data-network]')) button.disabled = !connected;
-  if (state) $('#profile-name').textContent = state.me.name;
+  if (state) {
+    $('#profile-name').textContent = state.me.name;
+    const account = state.me.account;
+    const profile = $('[data-action="profile"]');
+    profile.setAttribute('aria-label', account ? '账号与昵称' : '登录');
+    $('#profile-login-label').hidden = Boolean(account);
+    $('#account-name').hidden = !account;
+    $('#account-name').textContent = account ? `Sub2API · ${account.username}` : '';
+    $('#account-login').hidden = Boolean(account);
+    $('#account-logout').hidden = !account;
+    const avatar = $('#profile-avatar');
+    const url = account?.avatar || '';
+    if (url !== (avatar.getAttribute('src') ?? '')) {
+      avatar.hidden = !url;
+      if (url) avatar.src = url;
+      else avatar.removeAttribute('src');
+    }
+  }
   const room = state?.room;
   lobby.hidden = Boolean(room);
   roomView.hidden = !room;
@@ -462,6 +488,7 @@ function openDialog(action, value = '') {
   dialogTitle.textContent = prompt.title;
   dialogTitle.tabIndex = -1;
   $('#dialog-content').innerHTML = prompt.copy;
+  $('#account-summary').hidden = action !== 'profile';
   $('#dialog-field').hidden = !prompt.label;
   $('#dialog-form').hidden = !prompt.label && !prompt.submit;
   $('#dialog-field label').textContent = prompt.label ?? '';
@@ -482,6 +509,65 @@ function openDialog(action, value = '') {
     if (value) dialogInput.select();
   } else dialogTitle.focus();
 }
+
+function setAuthStep(step) {
+  authStep = step;
+  const totp = step === 'totp';
+  $('#auth-credentials').hidden = totp;
+  $('#auth-totp').hidden = !totp;
+  $('#auth-back').hidden = !totp;
+  $('#auth-footer').hidden = totp;
+  authEmail.disabled = totp;
+  authPassword.disabled = totp;
+  authCode.disabled = !totp;
+  authCode.value = '';
+  authError.hidden = true;
+  $('#auth-title').textContent = totp ? '完成二次验证' : '使用 Sub2API 登录';
+  $('#auth-copy').textContent = totp ? '请输入 Sub2API 账号在身份验证器中的动态验证码。' : '使用你在智算 API 的邮箱和密码登录弈间。';
+  authSubmit.textContent = totp ? '验证并登录' : '登录';
+  if (authDialog.open) (totp ? authCode : authEmail).focus();
+}
+
+function openAuth() {
+  if (dialog.open) dialog.close();
+  setAuthStep('credentials');
+  authDialog.showModal();
+  authEmail.focus();
+}
+
+authDialog.addEventListener('cancel', event => { if (authBusy) event.preventDefault(); });
+authDialog.addEventListener('close', () => authForm.reset());
+document.addEventListener('error', event => {
+  if (event.target.matches?.('#profile-avatar, .seat-name img')) event.target.hidden = true;
+}, true);
+
+authForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (authBusy) return;
+  authBusy = true;
+  authSubmit.disabled = true;
+  authError.hidden = true;
+  const totp = authStep === 'totp';
+  const data = totp ? { code: authCode.value } : { email: authEmail.value, password: authPassword.value };
+  authPassword.value = '';
+  try {
+    const result = await post(totp ? '/api/auth/totp' : '/api/auth/login', data, true);
+    if (result.requiresTotp) setAuthStep('totp');
+    else {
+      authDialog.close();
+      toast('已登录 Sub2API 账号');
+    }
+  } catch (error) {
+    authError.textContent = error.message;
+    authError.hidden = false;
+    const field = totp ? authCode : authPassword;
+    field.focus();
+    field.select();
+  } finally {
+    authBusy = false;
+    authSubmit.disabled = false;
+  }
+});
 
 async function copyInvite(watching) {
   if (!state?.room) return;
@@ -548,7 +634,33 @@ document.addEventListener('click', event => {
       openDialog(button.dataset.action);
       break;
     case 'profile':
-      openDialog('profile', state?.me.name);
+      if (state?.me.account) openDialog('profile', state.me.name);
+      else openAuth();
+      break;
+    case 'guest-profile':
+      if (!authBusy) {
+        authDialog.close();
+        openDialog('profile', state?.me.name);
+      }
+      break;
+    case 'sign-in':
+      openAuth();
+      break;
+    case 'sign-out':
+      button.disabled = true;
+      post('/api/auth/logout', {}, true).then(() => {
+        dialog.close();
+        toast('已退出登录，可继续以访客身份对弈');
+      }).catch(error => {
+        dialogError.textContent = error.message;
+        dialogError.hidden = false;
+      }).finally(() => { button.disabled = false; });
+      break;
+    case 'close-auth':
+      if (!authBusy) authDialog.close();
+      break;
+    case 'auth-back':
+      if (!authBusy) setAuthStep('credentials');
       break;
     case 'close':
       dialog.close();

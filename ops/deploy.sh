@@ -42,9 +42,8 @@ with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
         archive.extract(entry, path=sys.argv[1], filter="data")
 ' "$stage"
 
-test -s "$stage/server.js"
-test -s "$stage/package.json"
-test -s "$stage/public/index.html"
+test -s "$stage/bin/wzq-server"
+test -x "$stage/bin/wzq-server"
 chmod 0755 "$stage"
 if [[ ! -d "$base/$target" ]]; then
   mv -T "$stage" "$base/$target"

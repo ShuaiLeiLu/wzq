@@ -90,7 +90,10 @@ main { flex: 1; }
 .nav-link.current::after { position: absolute; content: ''; width: 24px; height: 2px; border-radius: 2px; bottom: 0; left: calc(50% - 12px); background: var(--jade); }
 .profile { min-width: 0; max-width: 100%; justify-self: end; display: inline-flex; align-items: center; gap: 9px; padding: 5px 10px 5px 5px; background: var(--card); border: 1px solid var(--line); border-radius: 24px; color: var(--jade-dark); font-size: 13px; font-weight: 600; white-space: nowrap; transition: background var(--ease); }
 .profile:hover:not(:disabled) { background: var(--soft); }
-.profile-icon { width: 27px; height: 27px; border-radius: 50%; background: var(--jade-pale); color: var(--jade); font-size: 16px; }
+.profile-icon { position: relative; display: grid; place-items: center; flex: none; width: 27px; height: 27px; border-radius: 50%; background: var(--jade-pale); color: var(--jade); font-size: 16px; }
+.profile-icon img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.profile-login-label { color: var(--jade-dark); font-weight: 750; }
+.profile:has(.profile-login-label:not([hidden])) .profile-edit { display: none; }
 #profile-name { overflow: hidden; text-overflow: ellipsis; }
 .profile-edit { font-size: 13px; color: var(--quiet); }
 
@@ -285,6 +288,15 @@ dialog::backdrop { background: var(--backdrop); }
 #dialog-input { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; background: var(--paper); color: var(--ink); }
 .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 15px; }
 .dialog-error { color: var(--error); font-size: 13px; margin-top: 8px; }
+#auth-copy { color: var(--muted); font-size: 14px; }
+.account-summary, .auth-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-top: 12px; color: var(--jade-dark); font-size: 13px; overflow-wrap: anywhere; }
+.account-summary { padding: 5px 11px; border-radius: 8px; background: var(--jade-pale); }
+.auth-footer { padding-top: 8px; border-top: 1px solid var(--line); }
+.auth-footer a { color: var(--jade-dark); text-underline-offset: 3px; }
+.auth-fields { display: grid; gap: 10px; margin-top: 15px; }
+.auth-fields label { display: block; margin-bottom: 5px; color: var(--jade-dark); font-size: 13px; font-weight: 750; }
+.auth-fields input { width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 16px; }
+.seat-name img { width: 17px; height: 17px; margin-right: 5px; border-radius: 50%; object-fit: cover; vertical-align: text-bottom; }
 .toast { position: fixed; z-index: 3; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); padding: 11px 16px; border-radius: 8px; background: var(--jade-dark); color: var(--ink-on-dark); font-size: 14px; box-shadow: 0 7px 26px var(--shadow); }
 
 @media (max-width: 950px) {
@@ -336,6 +348,7 @@ dialog::backdrop { background: var(--backdrop); }
   .brand small, .profile-edit { display: none !important; }
   .profile { gap: 5px; padding: 4px 6px 4px 4px; font-size: 11px; }
   .profile-icon { width: 21px; height: 21px; font-size: 13px; }
+  .profile:has(.profile-login-label:not([hidden])) #profile-name { display: none; }
   #profile-name { max-width: 66px; }
   .hero { min-height: 259px; }
   .hero-content { padding-inline: 17px; }

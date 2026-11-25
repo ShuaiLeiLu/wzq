@@ -16,20 +16,19 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24'
-
-      - name: Check JavaScript
+      - name: Check and build the Rust server
         run: |
-          node --check server.js
           node --check public/app.js
+          rustup toolchain install stable --profile minimal --component rustfmt
+          cargo +stable fmt --check
+          cargo +stable test --locked
+          cargo +stable build --locked --release
 
       - name: Deploy the checked revision
         env:
@@ -42,9 +41,10 @@ jobs:
           umask 077
           ssh_dir=$(mktemp -d)
           trap 'rm -rf -- "$ssh_dir"' EXIT
+          install -Dm755 target/release/wzq-server "$ssh_dir/release/bin/wzq-server"
           printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key"
           printf '%s\n' "$DEPLOY_HOST_KEY" > "$ssh_dir/known_hosts"
-          git archive --format=tar.gz "$GITHUB_SHA" |
+          tar -czf - -C "$ssh_dir/release" bin |
             ssh -T -i "$ssh_dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
               -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
               -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \

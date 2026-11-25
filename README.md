@@ -4,17 +4,19 @@
 
 ## 运行
 
-使用 Node.js 20 或更新版本。在项目目录运行以下命令，启动后打开 [http://localhost:3000](http://localhost:3000)。项目使用 Node.js 内置模块，启动前无需安装依赖。
+安装 Rust 稳定版和 Cargo。在项目目录运行以下命令，启动后打开 [http://localhost:3000](http://localhost:3000)。首次构建会下载 Rust 依赖。
 
-```powershell
-npm.cmd start
+```sh
+cargo run --locked
 ```
 
-在 macOS 或 Linux 上运行 `npm start`。端口默认是 `3000`，可通过环境变量 `PORT` 修改。服务默认监听 `0.0.0.0`，也可以用 `HOST` 指定监听地址。
+端口默认是 `3000`，可通过环境变量 `PORT` 修改。服务默认监听 `0.0.0.0`，也可以用 `HOST` 指定监听地址。Rust 服务内嵌前端静态资源，发布时只需要后端可执行文件。
 
 ## 开始对弈
 
-1. 使用两个浏览器窗口或两个设备打开同一个服务地址。点右上角的访客昵称可更改棋手名称。
+点击右上角「登录」可用智算 API（Sub2API）的邮箱和密码登录；启用二次验证的账号还需输入动态验证码。没有账号可以从登录窗口前往智算 API 注册和验证邮箱，也可以直接以访客身份对弈。弈间使用 Sub2API 的用户 ID 识别账号，并显示用户名和可用的头像。账号会话有效期为 12 小时，退出登录后会恢复访客身份。
+
+1. 使用两个浏览器窗口或两个设备打开同一个服务地址。右上角可以登录或编辑访客昵称。
 2. 两人分别从大厅进入同一间房。也可以一人创建房间，再把邀请链接或四位房间号发给另一人。
 3. 双方点击「准备」。黑棋先行，每手限时 30 秒，超时判负。横、竖、斜任一方向连成五子或更多即可获胜。双方再次准备可以开始下一局。
 
@@ -24,10 +26,12 @@ npm.cmd start
 
 棋室、昵称和棋局保存在服务进程的内存中，重启服务会清空。棋手断线后会暂停倒计时并保留座位 45 秒，重连后继续计时。掉线超时会释放座位，进行中的对局判对方获胜。
 
+Rust 后端通过 HTTPS 调用 Sub2API 的 `/api/v1/auth/login`、`/api/v1/auth/login/2fa` 和 `/api/v1/auth/me`。默认地址为 `https://zhisuanapi.cn`，测试时可通过环境变量 `SUB2API_ORIGIN` 指向本地模拟服务。
+
 ## 自动发布
 
 线上棋室使用 [https://wzq.zhisuanapi.cn](https://wzq.zhisuanapi.cn)。
 
-向 `main` 推送后，GitHub Actions 会检查 JavaScript 语法，并通过独立部署密钥上传对应版本。也可以从 GitHub 仓库的 Actions 页面手动运行 `Deploy Gomoku`。服务器启动新版后检查 `/healthz`，检查失败时会尝试恢复上一版本。每次发布重启服务，会清空正在进行的对局。
+向 `main` 推送后，GitHub Actions 会检查前端语法和 Rust 代码，编译 Linux 可执行文件，并通过独立部署密钥上传。也可以从 GitHub 仓库的 Actions 页面手动运行 `Deploy Gomoku`。服务器启动新版后检查 `/healthz`，检查失败时会尝试恢复上一版本。每次发布重启服务，会清空正在进行的对局和登录会话。
 
 服务器使用 `ops/wzq.service` 和 `ops/deploy.sh`，由现有 Caddy 按 `ops/wzq.caddy` 提供 HTTPS 反代。自动发布需要仓库密钥 `WZQ_DEPLOY_SSH_KEY`，以及变量 `WZQ_DEPLOY_HOST` 和 `WZQ_DEPLOY_KNOWN_HOST`。
