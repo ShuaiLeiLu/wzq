@@ -21,14 +21,18 @@ pub struct RankedResult {
     winner: Option<u8>,
 }
 
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 impl RankedMatch {
     pub fn finish(self, winner: Option<u8>) -> RankedResult {
         RankedResult {
             game: self,
-            finished_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            finished_at: unix_seconds(),
             winner,
         }
     }
@@ -55,6 +59,26 @@ struct Standing {
     wins: u64,
     losses: u64,
     points: i64,
+}
+
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChampionBroadcast {
+    day: String,
+    valid_until: u64,
+    winner: Option<Champion>,
+}
+
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
+struct Champion {
+    name: String,
+    points: i64,
+}
+
+impl ChampionBroadcast {
+    pub fn expired(&self) -> bool {
+        self.valid_until <= unix_seconds()
+    }
 }
 
 impl Leaderboard {
@@ -111,6 +135,14 @@ impl Leaderboard {
 
     pub async fn standings(&self, viewer: Option<u64>) -> Result<Standings, String> {
         self.rpc("/rpc/daily_leaderboard", json!({"p_viewer": viewer}))
+            .await?
+            .json()
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn yesterday_champion(&self) -> Result<ChampionBroadcast, String> {
+        self.rpc("/rpc/previous_day_champion", json!({}))
             .await?
             .json()
             .await

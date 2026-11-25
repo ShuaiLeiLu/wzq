@@ -423,6 +423,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         auth: Sub2Api::new()?,
         leaderboard: Leaderboard::new()?,
     };
+    let champion_app = app.clone();
+    tokio::spawn(async move {
+        let mut refresh = tokio::time::interval(Duration::from_secs(15));
+        refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut unavailable = false;
+        loop {
+            refresh.tick().await;
+            match champion_app.leaderboard.yesterday_champion().await {
+                Ok(champion) => {
+                    champion_app.store.lock().unwrap().set_champion(champion);
+                    unavailable = false;
+                }
+                Err(error) => {
+                    if !unavailable {
+                        eprintln!("yesterday's champion is unavailable: {error}");
+                    }
+                    unavailable = true;
+                }
+            }
+        }
+    });
     let ranking_writer = app.leaderboard.clone();
     tokio::spawn(async move {
         while let Some(result) = results.recv().await {

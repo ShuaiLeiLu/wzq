@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
-use crate::ranking::{RankedMatch, RankedPlayer, RankedResult};
+use crate::ranking::{ChampionBroadcast, RankedMatch, RankedPlayer, RankedResult};
 
 const SIZE: usize = 15;
 const TURN_MS: u64 = 30_000;
@@ -199,6 +199,7 @@ struct Room {
     seats: [Option<String>; 2],
     spectators: HashSet<String>,
     game: Option<Match>,
+    same_pair_rematch: bool,
     guidance: VecDeque<Message>,
     next_message: u64,
 }
@@ -213,6 +214,7 @@ impl Room {
             seats: [None, None],
             spectators: HashSet::new(),
             game: None,
+            same_pair_rematch: false,
             guidance: VecDeque::new(),
             next_message: 1,
         }
@@ -234,6 +236,13 @@ impl Room {
     fn watchable(&self) -> bool {
         self.spectators.len() < 30 && (self.count() > 0 || !self.spectators.is_empty())
     }
+
+    fn assign_colors(&mut self) {
+        if self.same_pair_rematch || OsRng.gen_bool(0.5) {
+            self.seats.swap(0, 1);
+        }
+        self.same_pair_rematch = true;
+    }
 }
 
 pub struct Store {
@@ -243,6 +252,7 @@ pub struct Store {
     accounts: HashMap<String, Account>,
     next_connection: u64,
     ranked_results: UnboundedSender<RankedResult>,
+    champion: Option<ChampionBroadcast>,
 }
 
 fn random_token(bytes: usize) -> String {
@@ -276,6 +286,7 @@ impl Store {
             accounts: HashMap::new(),
             next_connection: 0,
             ranked_results,
+            champion: None,
         }
     }
 
@@ -402,6 +413,7 @@ impl Store {
         json!({
             "me": {"name": player.name, "account": self.profile(player)},
             "serverTime": self.now(),
+            "champion": self.champion,
             "online": self.players.values().filter(|player| player.connection.is_some()).count(),
             "rooms": self.rooms.iter().map(|room| json!({ "id": room.id, "name": room.name, "theme": room.theme,
                 "count": room.count(), "joinable": room.joinable(), "watchable": room.watchable(), "playing": room.playing() })).collect::<Vec<_>>(),
@@ -423,6 +435,13 @@ impl Store {
                     sender.send_replace(self.snapshot(token, player).to_string());
                 }
             }
+        }
+    }
+
+    pub fn set_champion(&mut self, champion: ChampionBroadcast) {
+        if !champion.expired() && self.champion.as_ref() != Some(&champion) {
+            self.champion = Some(champion);
+            self.publish(None);
         }
     }
 
@@ -475,7 +494,8 @@ impl Store {
                 .flatten()
                 .all(|key| self.players[key].ready)
         {
-            let players = room.seats.each_ref().map(|seat| {
+            self.rooms[index].assign_colors();
+            let players = self.rooms[index].seats.each_ref().map(|seat| {
                 let profile = self.profile(&self.players[seat.as_ref()?])?;
                 Some(RankedPlayer {
                     id: profile.id,
@@ -501,7 +521,13 @@ impl Store {
 
     pub fn tick(&mut self) {
         let now = self.now();
-        let mut dirty = false;
+        let mut dirty = self
+            .champion
+            .as_ref()
+            .is_some_and(ChampionBroadcast::expired);
+        if dirty {
+            self.champion = None;
+        }
         for room in &mut self.rooms {
             if let Some(game) = &mut room.game {
                 dirty |= game.expire(now);
@@ -540,6 +566,7 @@ impl Store {
         let room = &mut self.rooms[index];
         if let Some(seat) = room.seat(token) {
             room.seats[seat] = None;
+            room.same_pair_rematch = false;
             if let Some(game) = &mut room.game {
                 if !game.expire(now) && game.playing() {
                     game.finish(Some(2 - seat as u8), "left");
@@ -597,6 +624,7 @@ impl Store {
                 .find(|seat| seat.is_none())
                 .expect("available seat") = Some(token.into());
             room.game = None;
+            room.same_pair_rematch = false;
         }
         let player = self.players.get_mut(token).expect("validated player");
         player.room = Some(room.id.clone());
@@ -726,5 +754,61 @@ impl Store {
             _ => return Err("无法执行此操作。"),
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rematch_swaps_colors_and_keeps_ranked_identities_with_the_players() {
+        let (scores, _results) = tokio::sync::mpsc::unbounded_channel();
+        let mut store = Store::new(scores);
+        let first = store.session(None, None);
+        let second = store.session(None, None);
+        let newcomer = store.session(None, None);
+        for (token, id) in [(&first, 30), (&second, 40)] {
+            store.establish_account(
+                token,
+                None,
+                Profile {
+                    id,
+                    username: format!("棋手 {id}"),
+                    avatar: String::new(),
+                },
+            );
+            store.connect(token);
+            store.join(token, 0, false).unwrap();
+        }
+        store.connect(&newcomer);
+        let ready = |store: &mut Store| {
+            for token in [&first, &second] {
+                store
+                    .command(token, &json!({"action": "ready", "ready": true}))
+                    .unwrap();
+            }
+        };
+        ready(&mut store);
+        let opening = store.rooms[0].seats.clone();
+        store.rooms[0]
+            .game
+            .as_mut()
+            .unwrap()
+            .finish(Some(1), "line");
+        ready(&mut store);
+        let room = &store.rooms[0];
+        assert_eq!(room.seats, [opening[1].clone(), opening[0].clone()]);
+        let (ranked, _) = room.game.as_ref().unwrap().ranked.as_ref().unwrap();
+        for (seat, profile) in room.seats.iter().zip(&ranked.players) {
+            let player = &store.players[seat.as_ref().unwrap()];
+            assert_eq!(
+                store.profile(player).unwrap().id,
+                profile.as_ref().unwrap().id
+            );
+        }
+        store.leave(&second);
+        store.join(&newcomer, 0, false).unwrap();
+        assert!(!store.rooms[0].same_pair_rematch);
     }
 }

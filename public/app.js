@@ -18,6 +18,7 @@ const icons = {
   link: '<path d="m10 13 4-4m-6 7-2 2a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m4 6a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-2 2" transform="translate(1 0) scale(.92)"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
   award: '<circle cx="12" cy="9" r="5"/><path d="m8 13-2 8 6-3 6 3-2-8"/>',
+  trophy: '<path d="M8 4h8v6a4 4 0 0 1-8 0V4ZM8 6H4v1a4 4 0 0 0 4 4m8-5h4v1a4 4 0 0 1-4 4m-4 3v5m-4 0h8"/>',
   close: '<path d="m6 6 12 12M6 18 18 6"/>'
 };
 
@@ -39,6 +40,8 @@ const authCode = $('#auth-code');
 const authError = $('#auth-error');
 const authSubmit = $('#auth-submit');
 const readyButton = $('#ready-button');
+const upperSeat = $('#upper-seat');
+const lowerSeat = $('#lower-seat');
 const guidanceLog = $('#guidance-log');
 const guidanceInput = $('#guidance-input');
 const turnClock = $('#turn-clock');
@@ -46,6 +49,8 @@ const turnSeconds = $('#turn-seconds');
 const barrage = $('#barrage');
 const barrageToggle = $('#barrage-toggle');
 const search = $('#room-search');
+const joinCode = $('#join-code');
+const joinError = $('#join-error');
 const storageKey = 'yijian-session';
 const barrageKey = 'yijian-barrage';
 const barrageQueue = [];
@@ -182,7 +187,7 @@ function renderLobby() {
   online.querySelector('span').textContent = connected ? `${state.online} 位在线` : state ? '正在重连' : '正在连接';
   if (!state) return;
   const query = search.value.trim().toLowerCase().replace(/^#/, '');
-  const matches = state.rooms.filter(room => (filter === 'all' || room.joinable)
+  const matches = state.rooms.filter(room => (filter === 'all' || (filter === 'open' ? room.joinable : room.watchable))
     && (room.name.toLowerCase().includes(query) || room.id.includes(query)));
   const signature = JSON.stringify([connected, matches, state.rooms.length]);
   if (signature === renderedRooms) return;
@@ -194,13 +199,17 @@ function renderLobby() {
     const tone = room.playing ? 'playing' : room.joinable ? '' : 'full';
     const watch = room.watchable ? `<button class="button button-outline watch-button" type="button" data-action="watch" data-id="${room.id}" ${connected ? '' : 'disabled'}><span data-icon="eye">${icon('eye')}</span>观战</button>` : '';
     const join = room.joinable || !room.watchable ? `<button class="button button-outline join-button" type="button" data-action="join" data-id="${room.id}" ${room.joinable && connected ? '' : 'disabled'}>${room.joinable ? '进入房间' : '暂不可加入'}<span data-icon="arrow-right">${icon('arrow-right')}</span></button>` : '';
-    return `<article class="room-row">
-      <div class="room-id"><span class="room-emblem ${room.theme}" aria-hidden="true">${icon('board')}</span>
-        <div class="room-ident"><h3 title="${escapeHTML(room.name)}">${escapeHTML(room.name)}</h3><span class="room-number">#${room.id}<span class="mobile-count"> · ${room.count}/2</span></span></div>
+    return `<article class="room-card">
+      <div class="room-card-head">
+        <div class="room-id"><span class="room-emblem ${room.theme}" aria-hidden="true">${icon('board')}</span>
+          <div class="room-ident"><h3 title="${escapeHTML(room.name)}">${escapeHTML(room.name)}</h3><span class="room-number">#${room.id}</span></div>
+        </div>
+        <span class="room-status ${tone}"><i></i>${status}</span>
       </div>
-      <span class="occupancy" aria-label="${room.count} 人，最多 2 人"><span data-icon="users">${icon('users')}</span>${room.count} / 2</span>
-      <span class="room-status ${tone}"><i></i>${status}</span>
-      <div class="room-actions">${watch}${join}</div>
+      <div class="room-card-foot">
+        <span class="occupancy"><span class="occupancy-icons" aria-hidden="true"><i class="${room.count >= 1 ? 'taken' : ''}"></i><i class="${room.count === 2 ? 'taken' : ''}"></i></span>${room.count} / 2 入座</span>
+        <div class="room-actions">${watch}${join}</div>
+      </div>
     </article>`;
   }).join('') : '<p class="empty-state">没有符合条件的房间，试试其他筛选条件。</p>';
   if (focused?.id) {
@@ -208,7 +217,7 @@ function renderLobby() {
     const sameAction = roomList.querySelector(`[data-id="${focused.id}"][data-action="${focused.action}"]:not(:disabled)`);
     (sameAction ?? fallback)?.focus();
   }
-  $('#room-count').textContent = matches.length === state.rooms.length ? `共 ${matches.length} 个房间` : `显示 ${matches.length} / ${state.rooms.length} 个房间`;
+  $('#room-count').textContent = matches.length === state.rooms.length ? `${matches.length} 间棋室` : `显示 ${matches.length} / ${state.rooms.length} 间`;
 }
 
 const coordinates = Array.from({ length: 15 }, (_, index) => String.fromCharCode(65 + index));
@@ -248,7 +257,7 @@ function matchMessage(room) {
       return ['award', title, description];
     }
     if (game?.status === 'playing') return seats.every(person => person?.online)
-      ? ['eye', '正在观战', '棋盘会随着棋手落子实时更新。']
+      ? ['eye', '正在观战', game.moves === 0 ? '黑棋先行，棋盘会实时更新。' : '棋盘会随着棋手落子实时更新。']
       : ['clock', '棋手正在重连', '双方恢复连接后可以继续对弈。'];
     return ['eye', '等待开局', '两位棋手准备完成后会自动开局。'];
   }
@@ -266,6 +275,9 @@ function matchMessage(room) {
   if (!opponent) return ['users', '等待棋友入座', '把邀请链接发给好友，或等待大厅中的棋友加入。'];
   if (!opponent.online) return ['clock', '对方正在重连', '棋室会为对方保留座位 45 秒。'];
   if (game?.status === 'playing') {
+    if (game.moves === 0) return seat === 0
+      ? ['grid', '轮到你落子', '你执黑，先落子。']
+      : ['clock', '等待对方落子', '你执白，等待对方落子。'];
     return game.turn === seat + 1 ? ['grid', '轮到你落子', '选择棋盘上的一个空交叉点。'] : ['clock', '等待对方落子', '对方落子后，棋盘会实时更新。'];
   }
   if (self.ready) return ['check', '你已准备', '等待对方准备，双方就绪后自动开局。'];
@@ -339,6 +351,32 @@ function renderGuidance(room) {
   $('#guidance-jump').lastElementChild.textContent = guidance.length ? `对话 ${guidance.length}` : '对话';
 }
 
+function renderSeat(element, room, index, perspective) {
+  const { game, seats } = room;
+  const person = seats[index];
+  const playing = game?.status === 'playing';
+  const active = Boolean(person?.online && (playing ? game.turn === index + 1 : person.ready));
+  const label = !person ? '空座' : !person.online ? '重连中' : playing ? active ? '落子中' : '等待落子' : person.ready ? '已准备' : '未准备';
+  const color = game ? (index === 1 ? '白棋' : '黑棋') : '待分配黑白';
+  const name = person?.name ?? '等待加入';
+  const avatar = person?.avatar ? `<img src="${escapeHTML(person.avatar)}" alt="" referrerpolicy="no-referrer">` : '';
+  const info = element.querySelector('.seat-info');
+  const marker = game ? `<i class="stone-disc ${index === 1 ? 'white' : ''}"></i>` : icon('user');
+  const content = `<span class="seat-piece" aria-hidden="true">${marker}</span>
+    <div class="seat-identity"><div class="seat-name" title="${escapeHTML(name)}">${avatar}<span>${escapeHTML(name)}</span></div>
+    <div class="seat-color">${color}${perspective ? ` · ${perspective}` : ''}</div></div>`;
+  if (info.dataset.rendered !== content) {
+    info.innerHTML = content;
+    info.dataset.rendered = content;
+  }
+  element.classList.toggle('mine', room.seat === index);
+  element.classList.toggle('vacant', !person);
+  element.classList.toggle('active', active);
+  const status = element.querySelector('.seat-state');
+  status.textContent = label;
+  status.classList.toggle('highlight', active);
+}
+
 function renderRoom(room) {
   const { game, seats, seat } = room;
   const playing = game?.status === 'playing';
@@ -351,7 +389,6 @@ function renderRoom(room) {
   $('#watch-label').hidden = !watching;
   $('#room-invite').lastElementChild.textContent = watching ? '复制观战链接' : '复制邀请';
   $('#watch-invite').hidden = watching;
-  $('#leave-room').lastElementChild.textContent = watching ? '退出观战' : '退出房间';
   $('#spectator-count').lastElementChild.textContent = `${room.spectatorCount} 人观战`;
   board.setAttribute('aria-label', watching ? '观战棋盘，使用方向键查看落点' : '五子棋棋盘，使用方向键移动，按回车落子');
   const chip = $('#board-state');
@@ -369,20 +406,13 @@ function renderRoom(room) {
     point.setAttribute('aria-label', `${point.dataset.coordinate}，${stone === 1 ? '黑棋' : stone === 2 ? '白棋' : '空位'}`);
     point.setAttribute('aria-disabled', String(!myTurn || stone > 0));
   });
-  const seatsContent = seats.map((person, index) => {
-    const mine = index === seat;
-    const active = playing ? game.turn === index + 1 : person?.ready;
-    const label = !person ? '空座' : !person.online ? '重连中' : playing ? active ? '落子中' : '等待落子' : person.ready ? '已准备' : '未准备';
-    return `<div class="seat ${mine ? 'mine' : ''} ${person ? '' : 'vacant'}">
-      <div class="seat-piece" aria-hidden="true"><i class="stone-disc ${index ? 'white' : ''}"></i></div>
-      <div><div class="seat-name">${person?.avatar ? `<img src="${escapeHTML(person.avatar)}" alt="" referrerpolicy="no-referrer">` : ''}${person ? escapeHTML(person.name) : '等待加入'}</div><div class="seat-color">${index ? '白棋' : '黑棋'}${mine ? ' · 你' : ''}</div></div>
-      <span class="seat-state ${active && person?.online ? 'highlight' : ''}">${label}</span>
-    </div>`;
-  }).join('');
-  const seatsElement = $('#seats');
-  if (seatsElement.dataset.rendered !== seatsContent) {
-    seatsElement.innerHTML = seatsContent;
-    seatsElement.dataset.rendered = seatsContent;
+  const lowerIndex = watching ? 0 : seat;
+  renderSeat(upperSeat, room, 1 - lowerIndex, watching ? '' : '对手');
+  renderSeat(lowerSeat, room, lowerIndex, watching ? '' : '你');
+  if (playing) {
+    const activeSeat = game.turn === lowerIndex + 1 ? lowerSeat : upperSeat;
+    const clockSlot = activeSeat.querySelector('.seat-clock-slot');
+    if (turnClock.parentElement !== clockSlot) clockSlot.append(turnClock);
   }
   const [symbol, title, description] = matchMessage(room);
   const status = $('#match-status');
@@ -397,12 +427,23 @@ function renderRoom(room) {
   readyButton.classList.toggle('button-outline', ready);
   readyButton.classList.toggle('button-primary', !ready);
   $('#take-seat').hidden = !watching || playing || seats.every(Boolean);
-  $('.game-side').classList.toggle('playing', playing || finished || watching);
   renderGuidance(room);
+}
+
+function renderChampion(broadcast) {
+  const strip = $('#champion-strip');
+  const winner = broadcast?.winner;
+  strip.hidden = !winner;
+  if (!winner) return;
+  const announcement = `恭喜 ${winner.name} 拿下昨日第一`;
+  const score = `${scoreText(winner.points)} 分`;
+  if ($('#champion-announcement').textContent !== announcement) $('#champion-announcement').textContent = announcement;
+  if ($('#champion-score').textContent !== score) $('#champion-score').textContent = score;
 }
 
 function render() {
   for (const button of document.querySelectorAll('[data-network]')) button.disabled = !connected;
+  renderChampion(state?.champion);
   if (state) {
     $('#profile-name').textContent = state.me.name;
     const account = state.me.account;
@@ -424,6 +465,8 @@ function render() {
   const room = state?.room;
   lobby.hidden = Boolean(room);
   roomView.hidden = !room;
+  const chat = $('#room-chat');
+  if (!room && chat.matches(':popover-open')) chat.hidePopover();
   const navLobby = $('.main-nav [data-action="lobby"]');
   navLobby.classList.toggle('current', !room);
   if (room) navLobby.removeAttribute('aria-current');
@@ -475,9 +518,8 @@ async function run(action, data = {}, reportError = toast) {
 const prompts = {
   create: { title: '创建房间', copy: '创建后你会直接入座，可以复制链接邀请好友。', label: '房间名称（选填）', placeholder: '例如：茶歇来一局', max: 20, submit: '创建并入座' },
   profile: { title: '编辑昵称', copy: '棋友会在对局中看到这个昵称。', label: '棋手昵称', max: 16, submit: '保存昵称', required: true },
-  'enter-code': { title: '用房间号加入', copy: '输入好友发来的四位房间号。', label: '房间号', placeholder: '例如：1001', max: 4, submit: '进入房间', required: true },
   leave: { title: '退出房间？', copy: '对弈正在进行。现在退出，本局将判对方获胜。', submit: '确认退出' },
-  rules: { title: '游戏规则', copy: '<p>弈间使用自由五子棋规则。</p><ul><li>两人入座后分别准备，双方就绪时自动开局。</li><li>黑棋先行，双方轮流在空交叉点落一子。每手限时 30 秒，落子超时判负。</li><li>横、竖或斜线连成五颗或更多同色棋子，即可获胜。</li><li>棋盘下满且无人连成五子，则为和棋。</li></ul>' },
+  rules: { title: '游戏规则', copy: '<p>弈间使用自由五子棋规则。</p><ul><li>双方准备后自动开局。首局随机分配黑白，同一棋室原班续局交换黑白，换棋手重新抽签。</li><li>黑棋先行，双方轮流在空交叉点落一子。每手限时 30 秒，落子超时判负。</li><li>横、竖或斜线连成五颗或更多同色棋子，即可获胜。</li><li>棋盘下满且无人连成五子，则为和棋。</li></ul>' },
   invite: { title: '邀请棋友', copy: '复制下面的链接发送给好友。', label: '房间邀请链接' },
   'watch-invite': { title: '邀请观战', copy: '好友打开链接后会进入观战视角。', label: '房间观战链接' }
 };
@@ -497,9 +539,7 @@ function openDialog(action, value = '') {
   dialogInput.placeholder = prompt.placeholder ?? '';
   dialogInput.required = Boolean(prompt.required);
   dialogInput.readOnly = !prompt.submit;
-  dialogInput.inputMode = action === 'enter-code' ? 'numeric' : 'text';
   dialogInput.maxLength = prompt.max ?? 4000;
-  dialogInput.pattern = action === 'enter-code' ? '[0-9]{4}' : '.*';
   dialogSubmit.hidden = !prompt.submit;
   dialogSubmit.disabled = false;
   dialogSubmit.textContent = prompt.submit ?? '';
@@ -591,6 +631,25 @@ $('#guidance-form').addEventListener('submit', async event => {
   if (await run('guidance', { text }) && state?.room?.id === roomId && guidanceInput.value === draft) guidanceInput.value = '';
 });
 
+function showJoinError(message) {
+  joinError.textContent = message;
+  joinError.hidden = !message;
+  joinCode.setAttribute('aria-invalid', String(Boolean(message)));
+}
+
+joinCode.addEventListener('input', () => showJoinError(''));
+$('#room-code-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const id = joinCode.value.trim();
+  if (!/^\d{4}$/.test(id)) {
+    showJoinError('请输入四位房间号。');
+    joinCode.focus();
+    return;
+  }
+  showJoinError('');
+  if (await run('join', { id }, showJoinError)) joinCode.value = '';
+});
+
 $('#dialog-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (!dialogAction || !prompts[dialogAction].submit) return;
@@ -601,7 +660,6 @@ $('#dialog-form').addEventListener('submit', async event => {
   const commands = {
     create: ['create', { name: field }],
     profile: ['rename', { name: field }],
-    'enter-code': ['join', { id: field }],
     leave: ['leave']
   };
   const [command, data] = commands[action];
@@ -616,7 +674,7 @@ $('#dialog-form').addEventListener('submit', async event => {
   if (!ok) return;
   dialog.close();
   if (action === 'profile') toast('昵称已更新');
-  if ((action === 'create' || action === 'enter-code') && !roomView.hidden) $('#room-title').focus({ preventScroll: true });
+  if (action === 'create' && !roomView.hidden) $('#room-title').focus({ preventScroll: true });
 });
 
 document.addEventListener('click', event => {
@@ -630,7 +688,6 @@ document.addEventListener('click', event => {
       break;
     case 'rules':
     case 'create':
-    case 'enter-code':
       openDialog(button.dataset.action);
       break;
     case 'profile':
@@ -691,13 +748,6 @@ document.addEventListener('click', event => {
     case 'watch-invite':
       copyInvite(button.dataset.action === 'watch-invite' || state?.room?.seat === -1);
       break;
-    case 'guidance-panel':
-    case 'board-panel': {
-      const target = button.dataset.action === 'guidance-panel' ? $('#guidance-title') : $('#board-toolbar');
-      target.focus({ preventScroll: true });
-      target.scrollIntoView({ block: 'start' });
-      break;
-    }
     case 'barrage': {
       const enabled = button.getAttribute('aria-pressed') !== 'true';
       button.setAttribute('aria-pressed', String(enabled));
