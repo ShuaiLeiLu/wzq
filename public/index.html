@@ -80,16 +80,20 @@
         <div class="room-labels"><span class="watch-label" id="watch-label" hidden><span data-icon="eye"></span>观战中</span><span id="room-code" class="room-code"></span></div>
       </div>
       <div class="room-heading">
-        <div><h1 id="room-title" tabindex="-1"></h1><p>自由五子棋 <span aria-hidden="true">·</span> 15 × 15 棋盘</p></div>
+        <div><h1 id="room-title" tabindex="-1"></h1><p>自由五子棋 <span aria-hidden="true">·</span> 15 × 15 <span aria-hidden="true">·</span> 每手 30 秒</p></div>
         <button type="button" class="button button-outline" id="room-invite" data-action="invite"><span data-icon="link"></span><span>复制邀请</span></button>
       </div>
       <div class="game-layout">
         <div class="board-card">
-          <div class="board-toolbar" id="board-toolbar" tabindex="-1"><span id="board-state" class="game-chip"><i></i><span>等待开局</span></span><div class="board-tools"><span id="move-count">已落 0 子</span><button type="button" class="link-button" data-action="guidance-panel" id="guidance-jump"><span data-icon="message"></span><span>指导</span></button></div></div>
+          <div class="board-toolbar" id="board-toolbar" tabindex="-1">
+            <div class="board-status"><span id="board-state" class="game-chip"><i></i><span>等待开局</span></span><span id="turn-clock" class="turn-clock" role="timer" aria-label="落子倒计时" hidden><span data-icon="clock" aria-hidden="true"></span><span id="turn-seconds"></span></span></div>
+            <div class="board-tools"><span id="move-count">已落 0 子</span><button type="button" class="link-button" data-action="barrage" id="barrage-toggle" aria-pressed="true" title="显示棋盘弹幕"><span data-icon="barrage"></span>弹幕</button><button type="button" class="link-button" data-action="guidance-panel" id="guidance-jump"><span data-icon="message"></span><span>对话</span></button></div>
+          </div>
           <div class="wood-board">
             <div class="board-axis axis-top" id="columns" aria-hidden="true"></div>
             <div class="board-axis axis-left" id="rows" aria-hidden="true"></div>
             <div id="board" class="board" role="group" aria-label="五子棋棋盘，使用方向键移动，按回车落子"></div>
+            <div id="barrage" class="barrage" aria-hidden="true"></div>
           </div>
         </div>
         <aside class="game-side">
@@ -101,11 +105,11 @@
             <button type="button" class="button button-outline ready-button" id="take-seat" data-action="take-seat" data-network hidden><span data-icon="door"></span>加入对弈</button>
           </section>
           <section class="game-panel guidance-panel" aria-labelledby="guidance-title">
-            <div class="guidance-heading"><h2 id="guidance-title" tabindex="-1"><span data-icon="message" aria-hidden="true"></span>观战指导</h2><button type="button" class="link-button" id="watch-invite" data-action="watch-invite">邀请观战</button><button type="button" class="link-button board-jump" data-action="board-panel">返回棋盘</button></div>
-            <p class="guidance-empty" id="guidance-empty">观众的落点和攻防建议会显示在这里。</p>
+            <div class="guidance-heading"><h2 id="guidance-title" tabindex="-1"><span data-icon="message" aria-hidden="true"></span>棋室对话</h2><button type="button" class="link-button" id="watch-invite" data-action="watch-invite">邀请观战</button><button type="button" class="link-button board-jump" data-action="board-panel">返回棋盘</button></div>
+            <p class="guidance-empty" id="guidance-empty">棋手和观众的消息会显示在这里。</p>
             <div class="guidance-log" id="guidance-log" role="log" aria-labelledby="guidance-title" tabindex="0" hidden></div>
-            <form class="guidance-form" id="guidance-form" hidden>
-              <input id="guidance-input" type="text" maxlength="160" placeholder="例如：可以先守住 H8" aria-label="输入观战指导" autocomplete="off" required>
+            <form class="guidance-form" id="guidance-form">
+              <input id="guidance-input" type="text" maxlength="160" placeholder="给同房棋友发消息" aria-label="输入棋室消息" autocomplete="off" required>
               <button type="submit" class="button button-primary" data-network>发送</button>
             </form>
           </section>

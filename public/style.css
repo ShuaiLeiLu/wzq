@@ -44,6 +44,8 @@
   --wood-grain: #7145210e;
   --wood-shine: #fff1c616;
   --marker: #ba402e;
+  --time-pale: #fae7df;
+  --barrage-bg: #173326ef;
   --win: #66471c;
   --rain-paper: #e6ecec;
   --rain-ink: #4f666c;
@@ -193,8 +195,14 @@ main { flex: 1; }
 .game-layout { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: 22px; align-items: start; }
 .board-card { padding: 13px; }
 .board-toolbar { padding: 0 5px 11px; color: var(--muted); font-size: 12px; }
-.board-tools { display: flex; align-items: center; gap: 13px; white-space: nowrap; }
-.board-tools .link-button { min-height: 29px; padding-left: 11px; border-left: 1px solid var(--line); font-size: 12px; }
+.board-status, .board-tools { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.board-tools .link-button { min-height: 29px; padding-inline: 7px; border-radius: 5px; font-size: 12px; }
+.board-tools .link-button[aria-pressed="true"] { background: var(--jade-pale); color: var(--jade-dark); }
+.board-tools .link-button[aria-pressed="false"] { color: var(--quiet); }
+.turn-clock { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 55px; padding: 4px 6px; border-radius: 6px; background: var(--jade-pale); color: var(--jade-dark); font-weight: 750; font-variant-numeric: tabular-nums; }
+.turn-clock [data-icon] { font-size: 14px; }
+.turn-clock.low { background: var(--time-pale); color: var(--error); }
+.turn-clock.paused { background: var(--gold-pale); color: var(--gold-ink); }
 .game-chip { font-size: 13px; }
 .wood-board { --axis: 5.1%; position: relative; margin-inline: auto; width: 100%; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--wood-dark); border-radius: 10px; background: repeating-linear-gradient(2deg, transparent 0, var(--wood-grain) 1.5px, transparent 3px 7px, var(--wood-shine) 9px, transparent 12px), repeating-linear-gradient(178deg, transparent 0 13px, var(--wood-shine) 17px, transparent 21px), radial-gradient(ellipse at 28% 13%, var(--wood-light), var(--wood) 65%, var(--wood-dark)); box-shadow: inset 0 0 12px var(--wood-shadow); }
 .board { position: absolute; inset: var(--axis); display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); grid-template-rows: repeat(15, minmax(0, 1fr)); }
@@ -214,6 +222,11 @@ main { flex: 1; }
 .point[aria-disabled="false"]:focus-visible .stone-disc { opacity: .55; }
 .point.win .stone-disc { outline: 2px solid var(--win); outline-offset: 2px; }
 .point.last .stone-disc::after { content: ''; position: absolute; inset: 34%; border-radius: 50%; border: max(1px, .15vw) solid var(--marker); }
+.barrage { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.barrage-message { position: absolute; top: calc(6% + var(--lane) * 30px); left: 100%; display: flex; align-items: center; gap: 6px; max-width: 78%; padding: 3px 9px; border-radius: 5px; background: var(--barrage-bg); color: var(--ink-on-dark); font-size: 13px; line-height: 1.5; white-space: nowrap; animation: barrage-pass 7s linear both; }
+.barrage-author, .barrage-text { overflow: hidden; text-overflow: ellipsis; }
+.barrage-author { max-width: 7em; flex: none; color: var(--gold); font-size: 11px; }
+@keyframes barrage-pass { to { left: 0; transform: translateX(-100%); } }
 .game-panel { padding: 18px; }
 .game-panel h2 { font: 700 22px/1.2 var(--font-display); }
 .players-heading, .guidance-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -245,7 +258,9 @@ main { flex: 1; }
 .guidance-empty { padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--quiet); font-size: 13px; }
 .guidance-log { display: grid; align-content: start; gap: 7px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; }
 .guidance-entry { padding: 7px 10px; border-radius: 8px; background: var(--soft); overflow-wrap: anywhere; }
-.guidance-entry span { color: var(--jade-ink); font-size: 12px; font-weight: 700; }
+.guidance-entry .message-author { display: flex; align-items: center; gap: 6px; color: var(--jade-ink); font-size: 12px; font-weight: 700; }
+.message-role { flex: none; padding-inline: 5px; border-radius: 4px; background: var(--jade-pale); }
+.message-role.spectator { background: var(--gold-pale); color: var(--gold-ink); }
 .guidance-entry p { color: var(--ink); font-size: 14px; }
 .guidance-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 11px; }
 .guidance-form input { width: 100%; min-width: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; }
@@ -345,6 +360,11 @@ dialog::backdrop { background: var(--backdrop); }
   .list-foot { padding-inline: 9px; }
   .room-heading .button { padding-inline: 9px; }
   .guidance-form input { font-size: 16px; }
+  .board-toolbar, .board-tools, .board-status { gap: 5px; }
+  .board-tools .link-button { padding-inline: 5px; }
+  .board-tools .link-button [data-icon] { display: none; }
+  #move-count { display: none; }
+  .barrage-message { top: calc(7% + var(--lane) * 25px); max-width: 88%; font-size: 12px; }
 }
 
 @media (max-width: 355px) {
@@ -353,4 +373,5 @@ dialog::backdrop { background: var(--backdrop); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+  .barrage-message { left: 8px; }
 }

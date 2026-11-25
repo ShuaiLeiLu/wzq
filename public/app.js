@@ -14,6 +14,7 @@ const icons = {
   users: '<circle cx="9" cy="8" r="3"/><path d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1m1-15a3 3 0 1 1 0 6m4 9v-1a5 5 0 0 0-3-4.6"/>',
   eye: '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/>',
   message: '<path d="M20 11.5a6.5 6.5 0 0 1-6.5 6.5H6l-3 2v-8.5A6.5 6.5 0 0 1 9.5 5h4a6.5 6.5 0 0 1 6.5 6.5Z"/><path d="M8 10h7m-7 4h4"/>',
+  barrage: '<path d="M3 6h13M8 12h13M3 18h10"/>',
   link: '<path d="m10 13 4-4m-6 7-2 2a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m4 6a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-2 2" transform="translate(1 0) scale(.92)"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
   award: '<circle cx="12" cy="9" r="5"/><path d="m8 13-2 8 6-3 6 3-2-8"/>',
@@ -33,15 +34,22 @@ const dialogError = $('#dialog-error');
 const readyButton = $('#ready-button');
 const guidanceLog = $('#guidance-log');
 const guidanceInput = $('#guidance-input');
+const turnClock = $('#turn-clock');
+const turnSeconds = $('#turn-seconds');
+const barrage = $('#barrage');
+const barrageToggle = $('#barrage-toggle');
 const search = $('#room-search');
 const storageKey = 'yijian-session';
+const barrageKey = 'yijian-barrage';
+const barrageQueue = [];
+const pending = new Set();
 
 let state = null;
 let token = null;
 let events;
 let connected = false;
+let syncedAt = 0;
 let retry;
-let pending = false;
 let visibleRoom = null;
 let renderedRooms = '';
 let filter = 'all';
@@ -121,6 +129,7 @@ async function connect(identity) {
       if (events !== source) return;
       connected = true;
       state = JSON.parse(event.data);
+      syncedAt = performance.now();
       render();
       if (requestedRoom) {
         const id = requestedRoom;
@@ -222,9 +231,10 @@ function buildBoard() {
 function matchMessage(room) {
   const { game, seats, seat } = room;
   if (seat === -1) {
-    if (!connected) return ['clock', '正在重连', '连接恢复后会同步棋盘和指导。'];
+    if (!connected) return ['clock', '正在重连', '连接恢复后会同步棋盘和对话。'];
     if (game?.status === 'finished') {
       const title = game.reason === 'draw' ? '和棋' : `${game.winner === 1 ? '黑棋' : '白棋'}获胜`;
+      if (game.reason === 'timeout') return ['clock', title, `${game.turn === 1 ? '黑棋' : '白棋'}落子超时。`];
       const description = game.reason === 'left' ? '有一位棋手退出了本局。' : '本局已结束，可以留在棋室观看下一局。';
       return ['award', title, description];
     }
@@ -237,6 +247,9 @@ function matchMessage(room) {
   const opponent = seats[1 - seat];
   if (!connected) return ['clock', '正在重连', '连接恢复后可以继续对弈。'];
   if (game?.status === 'finished') {
+    if (game.reason === 'timeout') return game.winner === seat + 1
+      ? ['award', '你获胜了', '对方落子超时。双方再次准备即可开局。']
+      : ['clock', '你落子超时', '本局判对方获胜。双方再次准备即可开局。'];
     if (game.reason === 'draw') return ['award', '和棋', '棋盘已下满。双方再次准备即可开局。'];
     if (game.reason === 'left') return ['award', '你获胜了', '对方已离开。你可以邀请新的棋友入座。'];
     return ['award', game.winner === seat + 1 ? '你获胜了' : '对方获胜', '棋盘已标出连线。双方再次准备即可开局。'];
@@ -250,26 +263,72 @@ function matchMessage(room) {
   return ['check', '双方已入座', '点击准备。双方就绪后自动开局。'];
 }
 
-function renderGuidance(room, watching) {
+function renderClock() {
+  const game = state?.room?.game;
+  turnClock.hidden = !connected || game?.status !== 'playing';
+  if (turnClock.hidden) return;
+  const paused = game.turnDeadline === null;
+  const serverNow = state.serverTime + performance.now() - syncedAt;
+  const remaining = paused ? game.turnRemaining : game.turnDeadline - serverNow;
+  const seconds = Math.max(0, Math.ceil(remaining / 1000));
+  const label = paused ? `暂停 ${seconds}s` : `${seconds}s`;
+  if (turnSeconds.textContent !== label) turnSeconds.textContent = label;
+  turnClock.classList.toggle('paused', paused);
+  turnClock.classList.toggle('low', !paused && seconds <= 5);
+}
+
+function showBarrage() {
+  const lanes = new Set([...barrage.children].map(item => item.dataset.lane));
+  for (const lane of ['0', '1', '2']) {
+    if (!barrageQueue.length) break;
+    if (lanes.has(lane)) continue;
+    const message = barrageQueue.shift();
+    const entry = document.createElement('span');
+    entry.className = 'barrage-message';
+    entry.dataset.lane = lane;
+    entry.style.setProperty('--lane', lane);
+    entry.innerHTML = `<span class="barrage-author">${escapeHTML(message.name)}</span><span class="barrage-text">${escapeHTML(message.text)}</span>`;
+    barrage.append(entry);
+    setTimeout(() => {
+      if (!entry.isConnected) return;
+      entry.remove();
+      showBarrage();
+    }, 7000);
+  }
+}
+
+function clearBarrage() {
+  barrageQueue.length = 0;
+  barrage.replaceChildren();
+}
+
+function renderGuidance(room) {
   const { guidance } = room;
-  if (guidanceLog.dataset.room !== room.id) {
+  const entering = guidanceLog.dataset.room !== room.id;
+  if (entering) {
     guidanceLog.dataset.room = room.id;
     guidanceLog.replaceChildren();
     guidanceInput.value = '';
+    clearBarrage();
   }
   const latest = Number(guidanceLog.lastElementChild?.dataset.id ?? 0);
   const follow = guidanceLog.scrollHeight - guidanceLog.scrollTop - guidanceLog.clientHeight < 32;
   guidanceLog.hidden = !guidance.length;
   $('#guidance-empty').hidden = Boolean(guidance.length);
-  for (const message of guidance) {
-    if (message.id <= latest) continue;
-    guidanceLog.insertAdjacentHTML('beforeend', `<div class="guidance-entry" data-id="${message.id}"><span>${escapeHTML(message.name)}</span><p>${escapeHTML(message.text)}</p></div>`);
+  const incoming = guidance.filter(message => message.id > latest);
+  for (const message of incoming) {
+    const role = message.seat === 0 ? '黑棋' : message.seat === 1 ? '白棋' : '观众';
+    guidanceLog.insertAdjacentHTML('beforeend', `<div class="guidance-entry" data-id="${message.id}"><div class="message-author"><span class="message-role ${message.seat === -1 ? 'spectator' : ''}">${role}</span><span>${escapeHTML(message.name)}</span></div><p>${escapeHTML(message.text)}</p></div>`);
+  }
+  if (incoming.length && !entering && barrageToggle.getAttribute('aria-pressed') === 'true') {
+    barrageQueue.push(...incoming.slice(-6));
+    if (barrageQueue.length > 6) barrageQueue.splice(0, barrageQueue.length - 6);
+    showBarrage();
   }
   while (guidanceLog.children.length > guidance.length) guidanceLog.firstElementChild.remove();
   if (follow && guidance.at(-1)?.id > latest) guidanceLog.scrollTop = guidanceLog.scrollHeight;
-  $('#guidance-form').hidden = !watching;
   guidanceInput.disabled = !connected;
-  $('#guidance-jump').lastElementChild.textContent = guidance.length ? `指导 ${guidance.length}` : '指导';
+  $('#guidance-jump').lastElementChild.textContent = guidance.length ? `对话 ${guidance.length}` : '对话';
 }
 
 function renderRoom(room) {
@@ -331,7 +390,7 @@ function renderRoom(room) {
   readyButton.classList.toggle('button-primary', !ready);
   $('#take-seat').hidden = !watching || playing || seats.every(Boolean);
   $('.game-side').classList.toggle('playing', playing || finished || watching);
-  renderGuidance(room, watching);
+  renderGuidance(room);
 }
 
 function render() {
@@ -346,11 +405,15 @@ function render() {
   else navLobby.setAttribute('aria-current', 'page');
   if (room) renderRoom(room);
   else renderLobby();
+  renderClock();
   const id = room?.id ?? null;
   if (id || visibleRoom) syncURL(id, room?.seat === -1);
   if (id !== visibleRoom) {
     visibleRoom = id;
-    if (!id) delete guidanceLog.dataset.room;
+    if (!id) {
+      delete guidanceLog.dataset.room;
+      clearBarrage();
+    }
     window.scrollTo(0, 0);
     if (id && !dialog.open) $('#room-title').focus({ preventScroll: true });
     else if (!id) navLobby.focus({ preventScroll: true });
@@ -366,12 +429,13 @@ function toast(message) {
 }
 
 async function run(action, data = {}, reportError = toast) {
-  if (pending) return false;
+  const group = action === 'guidance' ? 'message' : 'room';
+  if (pending.has(group)) return false;
   if (!connected) {
     reportError('正在重新连接棋室，请稍候。');
     return false;
   }
-  pending = true;
+  pending.add(group);
   try {
     await post('/api/action', { action, ...data }, true);
     return true;
@@ -379,7 +443,7 @@ async function run(action, data = {}, reportError = toast) {
     reportError(error.message);
     return false;
   } finally {
-    pending = false;
+    pending.delete(group);
   }
 }
 
@@ -388,7 +452,7 @@ const prompts = {
   profile: { title: '编辑昵称', copy: '棋友会在对局中看到这个昵称。', label: '棋手昵称', max: 16, submit: '保存昵称', required: true },
   'enter-code': { title: '用房间号加入', copy: '输入好友发来的四位房间号。', label: '房间号', placeholder: '例如：1001', max: 4, submit: '进入房间', required: true },
   leave: { title: '退出房间？', copy: '对弈正在进行。现在退出，本局将判对方获胜。', submit: '确认退出' },
-  rules: { title: '游戏规则', copy: '<p>弈间使用自由五子棋规则。</p><ul><li>两人入座后分别准备，双方就绪时自动开局。</li><li>黑棋先行，双方轮流在空交叉点落一子。</li><li>横、竖或斜线连成五颗或更多同色棋子，即可获胜。</li><li>棋盘下满且无人连成五子，则为和棋。</li></ul>' },
+  rules: { title: '游戏规则', copy: '<p>弈间使用自由五子棋规则。</p><ul><li>两人入座后分别准备，双方就绪时自动开局。</li><li>黑棋先行，双方轮流在空交叉点落一子。每手限时 30 秒，落子超时判负。</li><li>横、竖或斜线连成五颗或更多同色棋子，即可获胜。</li><li>棋盘下满且无人连成五子，则为和棋。</li></ul>' },
   invite: { title: '邀请棋友', copy: '复制下面的链接发送给好友。', label: '房间邀请链接' },
   'watch-invite': { title: '邀请观战', copy: '好友打开链接后会进入观战视角。', label: '房间观战链接' }
 };
@@ -437,8 +501,9 @@ $('#guidance-form').addEventListener('submit', async event => {
   event.preventDefault();
   const draft = guidanceInput.value;
   const text = draft.trim();
-  if (!text || state?.room?.seat !== -1) return;
-  if (await run('guidance', { text }) && guidanceInput.value === draft) guidanceInput.value = '';
+  const roomId = state?.room?.id;
+  if (!text || !roomId) return;
+  if (await run('guidance', { text }) && state?.room?.id === roomId && guidanceInput.value === draft) guidanceInput.value = '';
 });
 
 $('#dialog-form').addEventListener('submit', async event => {
@@ -522,6 +587,13 @@ document.addEventListener('click', event => {
       target.scrollIntoView({ block: 'start' });
       break;
     }
+    case 'barrage': {
+      const enabled = button.getAttribute('aria-pressed') !== 'true';
+      button.setAttribute('aria-pressed', String(enabled));
+      if (!enabled) clearBarrage();
+      try { localStorage.setItem(barrageKey, String(enabled)); } catch { /* Keep the preference for this page. */ }
+      break;
+    }
   }
 });
 
@@ -547,4 +619,8 @@ board.addEventListener('keydown', event => {
 
 fillIcons(document);
 buildBoard();
+try {
+  if (localStorage.getItem(barrageKey) === 'false') barrageToggle.setAttribute('aria-pressed', 'false');
+} catch { /* Keep the default when storage is unavailable. */ }
+setInterval(renderClock, 150);
 claimStoredIdentity(storage()).then(connect);

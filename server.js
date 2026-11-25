@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 
 const size = 15;
 const disconnectGrace = 45_000;
+const turnLength = 30_000;
 const spectatorLimit = 30;
 const guidanceLimit = 40;
 const players = new Map();
@@ -18,7 +19,7 @@ const staticFiles = new Map([
 function addRoom(id, name, theme, permanent = false) {
   const room = {
     id, name, theme, permanent, seats: [null, null], game: null,
-    spectators: new Set(), guidance: [], nextMessageId: 1
+    spectators: new Set(), guidance: [], nextMessageId: 1, turnTimer: null
   };
   rooms.set(id, room);
   return room;
@@ -45,6 +46,7 @@ function snapshot(player) {
   const room = rooms.get(player.roomId);
   return {
     me: { name: player.name },
+    serverTime: performance.now(),
     online: [...players.values()].filter(item => item.stream).length,
     rooms: [...rooms.values()].map(item => ({
       id: item.id,
@@ -84,12 +86,9 @@ function leave(player) {
   if (seat === -1) {
     room.spectators.delete(player);
   } else {
+    expireTurn(room);
     room.seats[seat] = null;
-    if (room.game?.status === 'playing') {
-      room.game.status = 'finished';
-      room.game.winner = 2 - seat;
-      room.game.reason = 'left';
-    }
+    if (room.game?.status === 'playing') finishGame(room, 2 - seat, 'left');
     for (const remaining of room.seats) if (remaining) remaining.ready = false;
   }
   player.roomId = null;
@@ -116,9 +115,55 @@ function beginIfReady(room) {
   if (room.game?.status === 'playing' || !room.seats.every(seat => seat?.stream && seat.ready)) return;
   room.game = {
     status: 'playing', board: Array(size * size).fill(0), turn: 1,
-    moves: 0, last: null, line: [], winner: null, reason: null
+    moves: 0, last: null, line: [], winner: null, reason: null,
+    turnDeadline: null, turnRemaining: null
   };
   for (const seat of room.seats) seat.ready = false;
+  startTurn(room);
+}
+
+function finishGame(room, winner, reason) {
+  clearTimeout(room.turnTimer);
+  room.turnTimer = null;
+  Object.assign(room.game, { status: 'finished', winner, reason, turnDeadline: null, turnRemaining: null });
+}
+
+function expireTurn(room, now = performance.now()) {
+  const game = room.game;
+  if (game?.status !== 'playing' || game.turnDeadline === null || now < game.turnDeadline) return false;
+  finishGame(room, 3 - game.turn, 'timeout');
+  return true;
+}
+
+function scheduleTurnExpiry(room) {
+  const delay = Math.max(1, Math.ceil(room.game.turnDeadline - performance.now()));
+  room.turnTimer = setTimeout(() => {
+    if (expireTurn(room)) publish();
+    else scheduleTurnExpiry(room);
+  }, delay);
+  room.turnTimer.unref();
+}
+
+function startTurn(room, remaining = turnLength) {
+  clearTimeout(room.turnTimer);
+  room.game.turnDeadline = performance.now() + remaining;
+  room.game.turnRemaining = null;
+  scheduleTurnExpiry(room);
+}
+
+function syncTurnConnection(room) {
+  const game = room.game;
+  if (game?.status !== 'playing') return;
+  if (room.seats.every(seat => seat?.stream)) {
+    if (game.turnDeadline === null) startTurn(room, game.turnRemaining);
+  } else if (game.turnDeadline !== null) {
+    const now = performance.now();
+    if (expireTurn(room, now)) return;
+    clearTimeout(room.turnTimer);
+    room.turnTimer = null;
+    game.turnRemaining = game.turnDeadline - now;
+    game.turnDeadline = null;
+  }
 }
 
 function join(player, room) {
@@ -163,6 +208,10 @@ function winningLine(board, row, col, color) {
 function move(player, room, index) {
   const game = room.game;
   if (game?.status !== 'playing') throw new Error('请等待双方准备后开局。');
+  if (expireTurn(room)) {
+    publish();
+    throw new Error('落子时间已用完。');
+  }
   if (!room.seats.every(seat => seat?.stream)) throw new Error('棋友正在重连，请稍候。');
   const color = room.seats.indexOf(player) + 1;
   if (game.turn !== color) throw new Error('现在轮到对方落子。');
@@ -174,14 +223,12 @@ function move(player, room, index) {
   game.moves++;
   game.line = winningLine(game.board, Math.floor(index / size), index % size, color);
   if (game.line.length) {
-    game.status = 'finished';
-    game.winner = color;
-    game.reason = 'line';
+    finishGame(room, color, 'line');
   } else if (game.moves === game.board.length) {
-    game.status = 'finished';
-    game.reason = 'draw';
+    finishGame(room, null, 'draw');
   } else {
     game.turn = 3 - color;
+    startTurn(room);
   }
 }
 
@@ -189,14 +236,15 @@ function cleanName(input, limit) {
   return typeof input === 'string' ? [...input.replace(/[\u0000-\u001f\u007f]/gu, '').trim()].slice(0, limit).join('') : '';
 }
 
-function sendGuidance(player, room, input) {
-  if (!room?.spectators.has(player)) throw new Error('只有观战者可以发送指导。');
+function sendRoomMessage(player, room, input) {
+  const seat = room?.seats.indexOf(player) ?? -1;
+  if (seat === -1 && !room?.spectators.has(player)) throw new Error('请先加入棋室再发言。');
   const text = typeof input === 'string' ? input.replace(/[\u0000-\u001f\u007f]/gu, ' ').trim() : '';
   if (!text || [...text].length > 160) throw new Error('请输入 1 至 160 个字符。');
   const now = Date.now();
   if (now - (player.lastGuidanceAt ?? 0) < 1000) throw new Error('请稍等一秒再发送。');
   player.lastGuidanceAt = now;
-  room.guidance.push({ id: room.nextMessageId++, name: player.name, text });
+  room.guidance.push({ id: room.nextMessageId++, name: player.name, text, seat });
   if (room.guidance.length > guidanceLimit) room.guidance.shift();
   return room.id;
 }
@@ -225,7 +273,7 @@ function command(player, data) {
       watch(player, rooms.get(String(data.id)));
       break;
     case 'guidance':
-      return sendGuidance(player, room, data.text);
+      return sendRoomMessage(player, room, data.text);
     case 'quick': {
       const available = [...rooms.values()].filter(canJoin);
       const target = available.find(item => playerCount(item) === 1) ?? available[0];
@@ -288,10 +336,15 @@ const server = createServer(async (req, res) => {
     clearTimeout(player.expiry);
     previous?.end();
     const room = rooms.get(player.roomId);
-    if (room) beginIfReady(room);
+    if (room?.seats.includes(player)) {
+      beginIfReady(room);
+      syncTurnConnection(room);
+    }
     res.on('close', () => {
       if (player.stream !== res) return;
       player.stream = null;
+      const currentRoom = rooms.get(player.roomId);
+      if (currentRoom?.seats.includes(player)) syncTurnConnection(currentRoom);
       expireLater(player);
       publish();
     });
