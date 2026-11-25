@@ -6,7 +6,9 @@ use std::{
 use rand::{Rng, RngCore, rngs::OsRng};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio::sync::watch;
+use tokio::sync::{mpsc::UnboundedSender, watch};
+
+use crate::ranking::{RankedMatch, RankedPlayer, RankedResult};
 
 const SIZE: usize = 15;
 const TURN_MS: u64 = 30_000;
@@ -58,10 +60,12 @@ struct Match {
     reason: Option<&'static str>,
     turn_deadline: Option<u64>,
     turn_remaining: Option<u64>,
+    #[serde(skip)]
+    ranked: Option<(RankedMatch, UnboundedSender<RankedResult>)>,
 }
 
 impl Match {
-    fn new(now: u64) -> Self {
+    fn new(now: u64, ranked: Option<(RankedMatch, UnboundedSender<RankedResult>)>) -> Self {
         Self {
             status: "playing",
             board: vec![0; SIZE * SIZE],
@@ -73,6 +77,7 @@ impl Match {
             reason: None,
             turn_deadline: Some(now + TURN_MS),
             turn_remaining: None,
+            ranked,
         }
     }
 
@@ -86,6 +91,11 @@ impl Match {
         self.reason = Some(reason);
         self.turn_deadline = None;
         self.turn_remaining = None;
+        if let Some((game, results)) = self.ranked.take() {
+            if results.send(game.finish(winner)).is_err() {
+                eprintln!("leaderboard result writer stopped");
+            }
+        }
     }
 
     fn expire(&mut self, now: u64) -> bool {
@@ -232,6 +242,7 @@ pub struct Store {
     rooms: Vec<Room>,
     accounts: HashMap<String, Account>,
     next_connection: u64,
+    ranked_results: UnboundedSender<RankedResult>,
 }
 
 fn random_token(bytes: usize) -> String {
@@ -248,7 +259,7 @@ fn clean_name(input: Option<&str>, limit: usize) -> String {
 }
 
 impl Store {
-    pub fn new() -> Self {
+    pub fn new(ranked_results: UnboundedSender<RankedResult>) -> Self {
         let rooms = [
             ("1001", "松风棋室", "pine"),
             ("1002", "听雨棋室", "rain"),
@@ -264,6 +275,7 @@ impl Store {
             rooms,
             accounts: HashMap::new(),
             next_connection: 0,
+            ranked_results,
         }
     }
 
@@ -283,6 +295,10 @@ impl Store {
         self.accounts
             .get(player.account.as_deref()?)
             .map(|account| &account.profile)
+    }
+
+    pub fn account_id(&self, cookie: Option<&str>) -> Option<u64> {
+        self.accounts.get(cookie?).map(|account| account.profile.id)
     }
 
     pub fn authorized(&self, token: &str, cookie: Option<&str>) -> bool {
@@ -443,13 +459,15 @@ impl Store {
 
     fn sync_room(&mut self, index: usize) {
         let now = self.now();
-        let room = &mut self.rooms[index];
+        let room = &self.rooms[index];
         let online = room.seats.iter().all(|seat| {
             seat.as_ref()
                 .is_some_and(|key| self.players[key].connection.is_some())
         });
-        if let Some(game) = room.game.as_mut().filter(|game| game.playing()) {
-            game.set_connected(online, now);
+        if room.playing() {
+            if let Some(game) = &mut self.rooms[index].game {
+                game.set_connected(online, now);
+            }
         } else if online
             && room
                 .seats
@@ -457,7 +475,24 @@ impl Store {
                 .flatten()
                 .all(|key| self.players[key].ready)
         {
-            room.game = Some(Match::new(now));
+            let players = room.seats.each_ref().map(|seat| {
+                let profile = self.profile(&self.players[seat.as_ref()?])?;
+                Some(RankedPlayer {
+                    id: profile.id,
+                    name: clean_name(Some(&profile.username), 32),
+                })
+            });
+            let ranked = players.iter().any(Option::is_some).then(|| {
+                (
+                    RankedMatch {
+                        id: random_token(16),
+                        players,
+                    },
+                    self.ranked_results.clone(),
+                )
+            });
+            let room = &mut self.rooms[index];
+            room.game = Some(Match::new(now, ranked));
             for key in room.seats.iter().flatten() {
                 self.players.get_mut(key).expect("occupied seat").ready = false;
             }

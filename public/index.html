@@ -47,7 +47,7 @@
       <div class="lobby-layout">
         <section class="rooms-section" aria-labelledby="rooms-title">
           <div class="section-heading">
-            <div><h2 id="rooms-title">房间列表</h2><p>挑一间棋室，入座等一位棋友。</p></div>
+            <div><div class="ranking-launch"><h2 id="rooms-title">房间列表</h2><button class="link-button" id="ranking-open" type="button" aria-haspopup="dialog"><span data-icon="award"></span>排行榜</button></div><p>挑一间棋室，入座等一位棋友。</p></div>
             <span class="online" id="online"><i></i><span>正在连接</span></span>
           </div>
           <div class="room-list-panel">
@@ -152,6 +152,21 @@
         <div class="dialog-actions"><button id="auth-back" class="button button-outline" type="button" data-action="auth-back" hidden>返回登录</button><button id="auth-submit" class="button button-primary" type="submit">登录</button></div>
       </form>
       <div id="auth-footer" class="auth-footer"><a href="https://zhisuanapi.cn/register" target="_blank" rel="noopener noreferrer">没有账号？去智算注册</a><button class="link-button" type="button" data-action="guest-profile">以访客身份改昵称</button></div>
+    </div>
+  </dialog>
+  <dialog id="ranking-dialog" aria-labelledby="ranking-title">
+    <div class="dialog-inner">
+      <div class="dialog-heading"><h2 id="ranking-title" tabindex="-1">今日排行榜</h2><button class="icon-button" id="ranking-close" type="button" aria-label="关闭排行榜" data-icon="close"></button></div>
+      <p class="ranking-rules"><span>胜 +1 · 负 −1 · 和棋 0</span><span>北京时间 00:00 重置</span></p>
+      <p id="ranking-status" class="ranking-status" role="status">正在读取排行榜…</p>
+      <button class="button button-outline" id="ranking-retry" type="button" hidden>重试</button>
+      <div id="ranking-table" class="ranking-table" hidden>
+        <table aria-label="今日棋手积分">
+          <thead><tr><th scope="col">排名</th><th scope="col">棋手</th><th scope="col">胜</th><th scope="col">负</th><th scope="col">积分</th></tr></thead>
+          <tbody id="ranking-rows"></tbody>
+        </table>
+      </div>
+      <p id="ranking-own" class="ranking-own" hidden></p>
     </div>
   </dialog>
   <div id="toast" role="status" class="toast" hidden></div>

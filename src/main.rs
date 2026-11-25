@@ -1,5 +1,6 @@
 mod auth;
 mod game;
+mod ranking;
 
 use std::{
     convert::Infallible,
@@ -25,6 +26,7 @@ use serde_json::{Value, json};
 
 use auth::{ApiError, AuthResult, Sub2Api};
 use game::{ACCOUNT_SECONDS, Challenge, Store};
+use ranking::{Leaderboard, Standings};
 
 const COOKIE: &str = "__Host-yijian-account";
 const EXPIRED: ApiError = ApiError(StatusCode::UNAUTHORIZED, "连接已过期，请刷新后重试。");
@@ -33,6 +35,7 @@ const EXPIRED: ApiError = ApiError(StatusCode::UNAUTHORIZED, "连接已过期，
 struct App {
     store: Arc<Mutex<Store>>,
     auth: Sub2Api,
+    leaderboard: Leaderboard,
 }
 
 fn cookie(headers: &HeaderMap) -> Option<&str> {
@@ -100,6 +103,24 @@ async fn session(
         .unwrap()
         .session(data["token"].as_str(), cookie(&headers));
     Json(json!({ "token": token }))
+}
+
+async fn leaderboard(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<Standings>, ApiError> {
+    let viewer = app.store.lock().unwrap().account_id(cookie(&headers));
+    app.leaderboard
+        .standings(viewer)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            eprintln!("leaderboard read failed: {error}");
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "暂时无法读取今日排行榜，请稍后再试。",
+            )
+        })
 }
 
 async fn action(
@@ -396,10 +417,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".into())
         .parse::<u16>()?;
+    let (ranked_results, mut results) = tokio::sync::mpsc::unbounded_channel();
     let app = App {
-        store: Arc::new(Mutex::new(Store::new())),
+        store: Arc::new(Mutex::new(Store::new(ranked_results))),
         auth: Sub2Api::new()?,
+        leaderboard: Leaderboard::new()?,
     };
+    let ranking_writer = app.leaderboard.clone();
+    tokio::spawn(async move {
+        while let Some(result) = results.recv().await {
+            loop {
+                match ranking_writer.record(&result).await {
+                    Ok(()) => break,
+                    Err(error) => {
+                        eprintln!("leaderboard write failed: {error}");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                }
+            }
+        }
+    });
     let store = app.store.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_millis(100));
@@ -444,6 +481,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .route("/healthz", get(|| async { Json(json!({"ok": true})) }))
         .route("/api/session", post(session))
+        .route("/api/leaderboard", get(leaderboard))
         .route("/api/events", get(events))
         .route("/api/action", post(action))
         .route("/api/auth/login", post(login))

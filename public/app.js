@@ -728,6 +728,67 @@ board.addEventListener('keydown', event => {
   points[boardFocus + offsets[event.key]]?.focus();
 });
 
+const rankingDialog = $('#ranking-dialog');
+const rankingStatus = $('#ranking-status');
+const rankingTable = $('#ranking-table');
+const rankingOwn = $('#ranking-own');
+const rankingRetry = $('#ranking-retry');
+let rankingRefresh;
+let rankingPending = false;
+
+function scoreText(points) {
+  return points > 0 ? '+' + points : String(points);
+}
+
+async function refreshRanking() {
+  if (rankingPending) return;
+  rankingPending = true;
+  try {
+    const response = await fetch('/api/leaderboard', { signal: AbortSignal.timeout(7000) });
+    if (!response.ok) throw new Error('Ranking unavailable');
+    const ranking = await response.json();
+    if (!rankingDialog.open) return;
+    $('#ranking-rows').innerHTML = ranking.entries.map(row => {
+      const tone = row.points > 0 ? 'positive' : row.points < 0 ? 'negative' : 'even';
+      return '<tr><td>' + row.rank + '</td><th scope="row">' + escapeHTML(row.name) + '</th><td>'
+        + row.wins + '</td><td>' + row.losses + '</td><td class="ranking-points ' + tone + '">'
+        + scoreText(row.points) + '</td></tr>';
+    }).join('');
+    rankingTable.hidden = !ranking.entries.length;
+    rankingStatus.hidden = Boolean(ranking.entries.length);
+    if (!ranking.entries.length) rankingStatus.textContent = '今天还没有棋手上榜。';
+    rankingOwn.hidden = !state?.me?.account;
+    rankingOwn.textContent = ranking.you
+      ? '我的今日排名：第 ' + ranking.you.rank + ' 名，' + scoreText(ranking.you.points) + ' 分'
+      : '今天还没有计分对局。';
+    rankingRetry.hidden = true;
+  } catch {
+    if (!rankingDialog.open) return;
+    rankingTable.hidden = true;
+    rankingOwn.hidden = true;
+    rankingStatus.hidden = false;
+    rankingStatus.textContent = '暂时无法读取今日排行榜。';
+    rankingRetry.hidden = false;
+  } finally {
+    rankingPending = false;
+  }
+}
+
+$('#ranking-open').addEventListener('click', () => {
+  rankingTable.hidden = true;
+  rankingOwn.hidden = true;
+  rankingRetry.hidden = true;
+  rankingStatus.hidden = false;
+  rankingStatus.textContent = '正在读取排行榜…';
+  rankingDialog.showModal();
+  $('#ranking-title').focus();
+  refreshRanking();
+  rankingRefresh = setInterval(refreshRanking, 12_000);
+});
+$('#ranking-close').addEventListener('click', () => rankingDialog.close());
+rankingRetry.addEventListener('click', refreshRanking);
+rankingDialog.addEventListener('close', () => clearInterval(rankingRefresh));
+
 fillIcons(document);
 buildBoard();
 try {
