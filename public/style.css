@@ -134,7 +134,7 @@ main { flex: 1; }
 .search:focus-within { border-color: var(--leaf); }
 .search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 13px; }
 .search input::placeholder { color: var(--quiet); }
-.room-row { min-height: 75px; display: grid; grid-template-columns: minmax(0, 1fr) 88px 85px 104px; align-items: center; gap: 13px; padding: 10px 17px; }
+.room-row { min-height: 75px; display: grid; grid-template-columns: minmax(0, 1fr) 88px 85px 184px; align-items: center; gap: 13px; padding: 10px 17px; }
 .room-row + .room-row { border-top: 1px solid var(--line); }
 .room-row:hover { background: var(--paper); }
 .room-id { min-width: 0; display: flex; gap: 11px; align-items: center; }
@@ -153,8 +153,12 @@ main { flex: 1; }
 .room-status.full i { background: var(--quiet); }
 .room-status.playing { background: var(--gold-pale); color: var(--gold-ink); }
 .room-status.playing i { background: var(--gold-ink); }
-.join-button { padding-inline: 12px; min-height: 37px; font-size: 13px; }
-.join-button [data-icon] { font-size: 13px; }
+.room-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.join-button, .watch-button { padding-inline: 11px; min-height: 37px; font-size: 13px; }
+.join-button { min-width: 100px; }
+.watch-button { gap: 5px; }
+.watch-button:only-child { min-width: 100px; background: var(--jade-pale); color: var(--jade-dark); }
+.join-button [data-icon], .watch-button [data-icon] { font-size: 14px; }
 .join-button:disabled [data-icon] { display: none; }
 .empty-state { padding: 36px 14px; text-align: center; color: var(--muted); }
 .list-foot { min-height: 52px; padding: 6px 17px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); color: var(--quiet); font-size: 12px; }
@@ -178,6 +182,9 @@ main { flex: 1; }
 .room-view { margin: 24px auto 0; max-width: 1010px; }
 .room-topline, .room-heading, .board-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .room-code { padding: 5px 9px; border-radius: 5px; color: var(--jade-ink); background: var(--jade-pale); font: 12px/1.3 var(--font-mono); white-space: nowrap; }
+.room-labels { display: flex; align-items: center; gap: 7px; }
+.watch-label { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 5px; background: var(--gold-pale); color: var(--gold-ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.watch-label [data-icon] { font-size: 15px; }
 .room-heading { margin: 8px 0 20px; }
 .room-heading h1 { font: 700 clamp(31px, 4.6vw, 50px)/1.15 var(--font-display); letter-spacing: .045em; }
 .room-heading h1:focus { outline: none; }
@@ -186,6 +193,8 @@ main { flex: 1; }
 .game-layout { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: 22px; align-items: start; }
 .board-card { padding: 13px; }
 .board-toolbar { padding: 0 5px 11px; color: var(--muted); font-size: 12px; }
+.board-tools { display: flex; align-items: center; gap: 13px; white-space: nowrap; }
+.board-tools .link-button { min-height: 29px; padding-left: 11px; border-left: 1px solid var(--line); font-size: 12px; }
 .game-chip { font-size: 13px; }
 .wood-board { --axis: 5.1%; position: relative; margin-inline: auto; width: 100%; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--wood-dark); border-radius: 10px; background: repeating-linear-gradient(2deg, transparent 0, var(--wood-grain) 1.5px, transparent 3px 7px, var(--wood-shine) 9px, transparent 12px), repeating-linear-gradient(178deg, transparent 0 13px, var(--wood-shine) 17px, transparent 21px), radial-gradient(ellipse at 28% 13%, var(--wood-light), var(--wood) 65%, var(--wood-dark)); box-shadow: inset 0 0 12px var(--wood-shadow); }
 .board { position: absolute; inset: var(--axis); display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); grid-template-rows: repeat(15, minmax(0, 1fr)); }
@@ -206,7 +215,11 @@ main { flex: 1; }
 .point.win .stone-disc { outline: 2px solid var(--win); outline-offset: 2px; }
 .point.last .stone-disc::after { content: ''; position: absolute; inset: 34%; border-radius: 50%; border: max(1px, .15vw) solid var(--marker); }
 .game-panel { padding: 18px; }
-.game-panel h2 { margin-bottom: 13px; font: 700 22px/1.2 var(--font-display); }
+.game-panel h2 { font: 700 22px/1.2 var(--font-display); }
+.players-heading, .guidance-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.players-heading { margin-bottom: 13px; }
+.spectator-count { display: inline-flex; align-items: center; gap: 5px; color: var(--jade-ink); font-size: 12px; font-weight: 650; white-space: nowrap; }
+.spectator-count [data-icon] { font-size: 16px; }
 #seats { display: grid; gap: 8px; }
 .seat { display: grid; grid-template-columns: 39px minmax(0, 1fr) auto; gap: 9px; align-items: center; padding: 9px; border: 1px solid var(--line); border-radius: 9px; }
 .seat.mine { background: var(--soft); }
@@ -223,6 +236,21 @@ main { flex: 1; }
 .match-status p { margin-top: 3px; font-size: 12px; color: var(--muted); }
 .ready-button { width: 100%; }
 .leave-link { margin: 9px 0 0 4px; color: var(--quiet); }
+.guidance-panel { margin-top: 13px; }
+.guidance-heading { margin-bottom: 10px; }
+.guidance-heading h2 { display: flex; align-items: center; gap: 7px; }
+.guidance-heading h2 [data-icon] { font-size: 19px; color: var(--jade-ink); }
+.guidance-heading .link-button { min-height: 28px; font-size: 12px; }
+.board-jump { display: none; }
+.guidance-empty { padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--quiet); font-size: 13px; }
+.guidance-log { display: grid; align-content: start; gap: 7px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; }
+.guidance-entry { padding: 7px 10px; border-radius: 8px; background: var(--soft); overflow-wrap: anywhere; }
+.guidance-entry span { color: var(--jade-ink); font-size: 12px; font-weight: 700; }
+.guidance-entry p { color: var(--ink); font-size: 14px; }
+.guidance-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 11px; }
+.guidance-form input { width: 100%; min-width: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; }
+.guidance-form input::placeholder { color: var(--quiet); }
+.guidance-form .button { padding-inline: 12px; }
 
 dialog { width: min(440px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 15px; background: var(--card); color: var(--ink); box-shadow: 0 20px 70px var(--backdrop); }
 dialog::backdrop { background: var(--backdrop); }
@@ -246,7 +274,9 @@ dialog::backdrop { background: var(--backdrop); }
   .hero { min-height: 320px; }
   .hero-content { padding-inline: 40px; }
   .lobby-layout { gap: 17px; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); }
-  .room-row { padding-inline: 12px; gap: 9px; grid-template-columns: minmax(0, 1fr) 49px 68px 98px; }
+  .room-row { padding-inline: 12px; gap: 9px; grid-template-columns: minmax(0, 1fr) 49px 68px 164px; }
+  .join-button, .watch-button:only-child { min-width: 88px; }
+  .join-button { padding-inline: 8px; gap: 5px; }
   .guide { padding-inline: 16px; }
 }
 
@@ -272,6 +302,7 @@ dialog::backdrop { background: var(--backdrop); }
   .game-side { grid-row: 1; }
   .game-side.playing { grid-row: auto; }
   .game-panel { padding: 13px; }
+  .board-jump { display: inline-flex; margin-left: auto; }
   #seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .seat { grid-template-columns: 30px minmax(0, 1fr); gap: 5px; padding: 6px; }
   .seat-piece { width: 30px; height: 30px; grid-row: span 2; }
@@ -300,17 +331,20 @@ dialog::backdrop { background: var(--backdrop); }
   .filter button { padding-inline: 6px; font-size: 12px; }
   .search { padding-inline: 6px; gap: 4px; }
   .search input { font-size: 12px; }
-  .room-row { grid-template-columns: minmax(0, 1fr) 61px 80px; gap: 7px; padding: 8px 9px; min-height: 63px; }
+  .room-row { grid-template-columns: minmax(0, 1fr) auto; gap: 3px 7px; padding: 8px 9px; min-height: 63px; }
   .room-row .occupancy { display: none; }
   .mobile-count { display: inline; }
   .room-id { gap: 7px; }
   .room-emblem { width: 33px; height: 33px; font-size: 16px; }
   .room-ident h3 { font-size: 13px; }
-  .room-status { font-size: 11px; gap: 4px; padding-inline: 5px; }
-  .join-button { padding-inline: 7px; }
+  .room-status { grid-row: 2; margin-left: 40px; font-size: 11px; gap: 4px; padding: 1px 5px; }
+  .room-actions { grid-column: 2; grid-row: 1 / span 2; }
+  .join-button, .watch-button:only-child { min-width: 76px; }
+  .join-button, .watch-button { min-height: 44px; padding-inline: 7px; }
   .join-button [data-icon] { display: none; }
   .list-foot { padding-inline: 9px; }
   .room-heading .button { padding-inline: 9px; }
+  .guidance-form input { font-size: 16px; }
 }
 
 @media (max-width: 355px) {

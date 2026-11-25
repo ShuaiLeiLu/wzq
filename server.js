@@ -4,6 +4,8 @@ import { createReadStream } from 'node:fs';
 
 const size = 15;
 const disconnectGrace = 45_000;
+const spectatorLimit = 30;
+const guidanceLimit = 40;
 const players = new Map();
 const rooms = new Map();
 const staticFiles = new Map([
@@ -14,7 +16,10 @@ const staticFiles = new Map([
 ]);
 
 function addRoom(id, name, theme, permanent = false) {
-  const room = { id, name, theme, permanent, seats: [null, null], game: null };
+  const room = {
+    id, name, theme, permanent, seats: [null, null], game: null,
+    spectators: new Set(), guidance: [], nextMessageId: 1
+  };
   rooms.set(id, room);
   return room;
 }
@@ -32,6 +37,10 @@ function canJoin(room) {
   return room.game?.status !== 'playing' && playerCount(room) < 2;
 }
 
+function canWatch(room) {
+  return room.spectators.size < spectatorLimit && (playerCount(room) > 0 || room.spectators.size > 0);
+}
+
 function snapshot(player) {
   const room = rooms.get(player.roomId);
   return {
@@ -43,6 +52,7 @@ function snapshot(player) {
       theme: item.theme,
       count: playerCount(item),
       joinable: canJoin(item),
+      watchable: canWatch(item),
       playing: item.game?.status === 'playing'
     })),
     room: room ? {
@@ -52,14 +62,18 @@ function snapshot(player) {
       seats: room.seats.map(seat => seat ? {
         name: seat.name, ready: seat.ready, online: Boolean(seat.stream)
       } : null),
-      game: room.game
+      game: room.game,
+      spectatorCount: [...room.spectators].filter(spectator => spectator.stream).length,
+      guidance: room.guidance
     } : null
   };
 }
 
-function publish() {
+function publish(roomId) {
   for (const player of players.values()) {
-    if (player.stream) player.stream.write(`data: ${JSON.stringify(snapshot(player))}\n\n`);
+    if (player.stream && (!roomId || player.roomId === roomId)) {
+      player.stream.write(`data: ${JSON.stringify(snapshot(player))}\n\n`);
+    }
   }
 }
 
@@ -67,17 +81,22 @@ function leave(player) {
   const room = rooms.get(player.roomId);
   if (!room) return;
   const seat = room.seats.indexOf(player);
-  room.seats[seat] = null;
-  if (room.game?.status === 'playing') {
-    room.game.status = 'finished';
-    room.game.winner = 2 - seat;
-    room.game.reason = 'left';
+  if (seat === -1) {
+    room.spectators.delete(player);
+  } else {
+    room.seats[seat] = null;
+    if (room.game?.status === 'playing') {
+      room.game.status = 'finished';
+      room.game.winner = 2 - seat;
+      room.game.reason = 'left';
+    }
+    for (const remaining of room.seats) if (remaining) remaining.ready = false;
   }
   player.roomId = null;
   player.ready = false;
-  for (const remaining of room.seats) if (remaining) remaining.ready = false;
-  if (!playerCount(room)) {
-    if (room.permanent) room.game = null;
+  if (!playerCount(room)) room.game = null;
+  if (!playerCount(room) && !room.spectators.size) {
+    if (room.permanent) room.guidance.length = 0;
     else rooms.delete(room.id);
   }
 }
@@ -104,13 +123,23 @@ function beginIfReady(room) {
 
 function join(player, room) {
   if (!room) throw new Error('没有找到这个房间，请核对房间号。');
-  if (player.roomId === room.id) return;
+  if (room.seats.includes(player)) return;
+  if (player.roomId && player.roomId !== room.id) throw new Error('请先退出当前房间。');
   if (!canJoin(room)) throw new Error('房间暂时无法加入，请换一个房间。');
-  if (player.roomId) throw new Error('请先退出当前房间。');
+  room.spectators.delete(player);
   room.seats[room.seats.indexOf(null)] = player;
   player.roomId = room.id;
   player.ready = false;
   room.game = null;
+}
+
+function watch(player, room) {
+  if (!room) throw new Error('没有找到这个房间，请核对房间号。');
+  if (room.spectators.has(player)) return;
+  if (player.roomId) throw new Error('请先退出当前房间。');
+  if (!canWatch(room)) throw new Error('这个房间当前无法观战。');
+  room.spectators.add(player);
+  player.roomId = room.id;
 }
 
 function winningLine(board, row, col, color) {
@@ -160,6 +189,18 @@ function cleanName(input, limit) {
   return typeof input === 'string' ? [...input.replace(/[\u0000-\u001f\u007f]/gu, '').trim()].slice(0, limit).join('') : '';
 }
 
+function sendGuidance(player, room, input) {
+  if (!room?.spectators.has(player)) throw new Error('只有观战者可以发送指导。');
+  const text = typeof input === 'string' ? input.replace(/[\u0000-\u001f\u007f]/gu, ' ').trim() : '';
+  if (!text || [...text].length > 160) throw new Error('请输入 1 至 160 个字符。');
+  const now = Date.now();
+  if (now - (player.lastGuidanceAt ?? 0) < 1000) throw new Error('请稍等一秒再发送。');
+  player.lastGuidanceAt = now;
+  room.guidance.push({ id: room.nextMessageId++, name: player.name, text });
+  if (room.guidance.length > guidanceLimit) room.guidance.shift();
+  return room.id;
+}
+
 function command(player, data) {
   const room = rooms.get(player.roomId);
   switch (data.action) {
@@ -180,6 +221,11 @@ function command(player, data) {
     case 'join':
       join(player, rooms.get(String(data.id)));
       break;
+    case 'watch':
+      watch(player, rooms.get(String(data.id)));
+      break;
+    case 'guidance':
+      return sendGuidance(player, room, data.text);
     case 'quick': {
       const available = [...rooms.values()].filter(canJoin);
       const target = available.find(item => playerCount(item) === 1) ?? available[0];
@@ -191,12 +237,12 @@ function command(player, data) {
       leave(player);
       break;
     case 'ready':
-      if (!room || room.game?.status === 'playing') throw new Error('当前无法切换准备状态。');
+      if (!room?.seats.includes(player) || room.game?.status === 'playing') throw new Error('当前无法切换准备状态。');
       player.ready = data.ready === true;
       beginIfReady(room);
       break;
     case 'move':
-      if (!room) throw new Error('请先加入房间。');
+      if (!room?.seats.includes(player)) throw new Error('只有入座棋手可以落子。');
       move(player, room, data.index);
       break;
     default:
@@ -275,8 +321,7 @@ const server = createServer(async (req, res) => {
     try {
       const data = await readBody(req);
       if (!player.stream) return send(res, 409, { error: '正在重新连接棋室，请稍候。' });
-      command(player, data);
-      publish();
+      publish(command(player, data));
       return send(res, 200, { ok: true });
     } catch (error) {
       return send(res, 400, { error: error instanceof SyntaxError ? '请求内容无效。' : error.message });

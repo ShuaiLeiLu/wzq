@@ -12,6 +12,8 @@ const icons = {
   grid: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/>',
   board: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16m5-16v16"/><circle cx="10" cy="10" r="2.1" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="2.1" fill="currentColor" stroke="none"/>',
   users: '<circle cx="9" cy="8" r="3"/><path d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1m1-15a3 3 0 1 1 0 6m4 9v-1a5 5 0 0 0-3-4.6"/>',
+  eye: '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/>',
+  message: '<path d="M20 11.5a6.5 6.5 0 0 1-6.5 6.5H6l-3 2v-8.5A6.5 6.5 0 0 1 9.5 5h4a6.5 6.5 0 0 1 6.5 6.5Z"/><path d="M8 10h7m-7 4h4"/>',
   link: '<path d="m10 13 4-4m-6 7-2 2a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m4 6a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-2 2" transform="translate(1 0) scale(.92)"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
   award: '<circle cx="12" cy="9" r="5"/><path d="m8 13-2 8 6-3 6 3-2-8"/>',
@@ -29,6 +31,8 @@ const dialogInput = $('#dialog-input');
 const dialogSubmit = $('#dialog-submit');
 const dialogError = $('#dialog-error');
 const readyButton = $('#ready-button');
+const guidanceLog = $('#guidance-log');
+const guidanceInput = $('#guidance-input');
 const search = $('#room-search');
 const storageKey = 'yijian-session';
 
@@ -44,7 +48,9 @@ let filter = 'all';
 let boardFocus = 112;
 let dialogAction = null;
 let toastTimeout;
-let requestedRoom = new URL(location.href).searchParams.get('room');
+const linkParams = new URL(location.href).searchParams;
+let requestedRoom = linkParams.get('room');
+const linkedAction = linkParams.get('view') === 'watch' ? 'watch' : 'join';
 
 function icon(name) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${icons[name]}</svg>`;
@@ -119,7 +125,7 @@ async function connect(identity) {
       if (requestedRoom) {
         const id = requestedRoom;
         requestedRoom = null;
-        if (!state.room) run('join', { id }).then(ok => { if (!ok) syncURL(null); });
+        if (!state.room) run(linkedAction, { id }).then(ok => { if (!ok) syncURL(null); });
       }
     };
     source.onerror = () => {
@@ -143,10 +149,12 @@ async function connect(identity) {
   }
 }
 
-function syncURL(id) {
+function syncURL(id, watching = false) {
   const url = new URL(location.href);
   if (id) url.searchParams.set('room', id);
   else url.searchParams.delete('room');
+  if (watching) url.searchParams.set('view', 'watch');
+  else url.searchParams.delete('view');
   if (url.href !== location.href) history.replaceState(null, '', url);
 }
 
@@ -161,21 +169,27 @@ function renderLobby() {
   const signature = JSON.stringify([connected, matches, state.rooms.length]);
   if (signature === renderedRooms) return;
   renderedRooms = signature;
-  const focusedId = roomList.contains(document.activeElement) ? document.activeElement.dataset.id : null;
+  const focused = roomList.contains(document.activeElement) ? { ...document.activeElement.dataset } : null;
   roomList.setAttribute('aria-busy', 'false');
   roomList.innerHTML = matches.length ? matches.map(room => {
     const status = room.playing ? '对弈中' : !room.joinable ? '已满员' : room.count ? '等一位' : '等待入座';
     const tone = room.playing ? 'playing' : room.joinable ? '' : 'full';
+    const watch = room.watchable ? `<button class="button button-outline watch-button" type="button" data-action="watch" data-id="${room.id}" ${connected ? '' : 'disabled'}><span data-icon="eye">${icon('eye')}</span>观战</button>` : '';
+    const join = room.joinable || !room.watchable ? `<button class="button button-outline join-button" type="button" data-action="join" data-id="${room.id}" ${room.joinable && connected ? '' : 'disabled'}>${room.joinable ? '进入房间' : '暂不可加入'}<span data-icon="arrow-right">${icon('arrow-right')}</span></button>` : '';
     return `<article class="room-row">
       <div class="room-id"><span class="room-emblem ${room.theme}" aria-hidden="true">${icon('board')}</span>
         <div class="room-ident"><h3 title="${escapeHTML(room.name)}">${escapeHTML(room.name)}</h3><span class="room-number">#${room.id}<span class="mobile-count"> · ${room.count}/2</span></span></div>
       </div>
       <span class="occupancy" aria-label="${room.count} 人，最多 2 人"><span data-icon="users">${icon('users')}</span>${room.count} / 2</span>
       <span class="room-status ${tone}"><i></i>${status}</span>
-      <button class="button button-outline join-button" type="button" data-action="join" data-id="${room.id}" ${room.joinable && connected ? '' : 'disabled'}>${room.joinable ? '进入房间' : '暂不可加入'}<span data-icon="arrow-right">${icon('arrow-right')}</span></button>
+      <div class="room-actions">${watch}${join}</div>
     </article>`;
   }).join('') : '<p class="empty-state">没有符合条件的房间，试试其他筛选条件。</p>';
-  if (focusedId) roomList.querySelector(`[data-id="${focusedId}"]`)?.focus();
+  if (focused?.id) {
+    const fallback = roomList.querySelector(`[data-id="${focused.id}"]:not(:disabled)`);
+    const sameAction = roomList.querySelector(`[data-id="${focused.id}"][data-action="${focused.action}"]:not(:disabled)`);
+    (sameAction ?? fallback)?.focus();
+  }
   $('#room-count').textContent = matches.length === state.rooms.length ? `共 ${matches.length} 个房间` : `显示 ${matches.length} / ${state.rooms.length} 个房间`;
 }
 
@@ -207,6 +221,18 @@ function buildBoard() {
 
 function matchMessage(room) {
   const { game, seats, seat } = room;
+  if (seat === -1) {
+    if (!connected) return ['clock', '正在重连', '连接恢复后会同步棋盘和指导。'];
+    if (game?.status === 'finished') {
+      const title = game.reason === 'draw' ? '和棋' : `${game.winner === 1 ? '黑棋' : '白棋'}获胜`;
+      const description = game.reason === 'left' ? '有一位棋手退出了本局。' : '本局已结束，可以留在棋室观看下一局。';
+      return ['award', title, description];
+    }
+    if (game?.status === 'playing') return seats.every(person => person?.online)
+      ? ['eye', '正在观战', '棋盘会随着棋手落子实时更新。']
+      : ['clock', '棋手正在重连', '双方恢复连接后可以继续对弈。'];
+    return ['eye', '等待开局', '两位棋手准备完成后会自动开局。'];
+  }
   const self = seats[seat];
   const opponent = seats[1 - seat];
   if (!connected) return ['clock', '正在重连', '连接恢复后可以继续对弈。'];
@@ -224,14 +250,43 @@ function matchMessage(room) {
   return ['check', '双方已入座', '点击准备。双方就绪后自动开局。'];
 }
 
+function renderGuidance(room, watching) {
+  const { guidance } = room;
+  if (guidanceLog.dataset.room !== room.id) {
+    guidanceLog.dataset.room = room.id;
+    guidanceLog.replaceChildren();
+    guidanceInput.value = '';
+  }
+  const latest = Number(guidanceLog.lastElementChild?.dataset.id ?? 0);
+  const follow = guidanceLog.scrollHeight - guidanceLog.scrollTop - guidanceLog.clientHeight < 32;
+  guidanceLog.hidden = !guidance.length;
+  $('#guidance-empty').hidden = Boolean(guidance.length);
+  for (const message of guidance) {
+    if (message.id <= latest) continue;
+    guidanceLog.insertAdjacentHTML('beforeend', `<div class="guidance-entry" data-id="${message.id}"><span>${escapeHTML(message.name)}</span><p>${escapeHTML(message.text)}</p></div>`);
+  }
+  while (guidanceLog.children.length > guidance.length) guidanceLog.firstElementChild.remove();
+  if (follow && guidance.at(-1)?.id > latest) guidanceLog.scrollTop = guidanceLog.scrollHeight;
+  $('#guidance-form').hidden = !watching;
+  guidanceInput.disabled = !connected;
+  $('#guidance-jump').lastElementChild.textContent = guidance.length ? `指导 ${guidance.length}` : '指导';
+}
+
 function renderRoom(room) {
   const { game, seats, seat } = room;
   const playing = game?.status === 'playing';
   const finished = game?.status === 'finished';
+  const watching = seat === -1;
   const color = seat + 1;
-  const myTurn = connected && playing && game.turn === color && seats.every(person => person?.online);
+  const myTurn = !watching && connected && playing && game.turn === color && seats.every(person => person?.online);
   $('#room-title').textContent = room.name;
   $('#room-code').textContent = `房间 #${room.id}`;
+  $('#watch-label').hidden = !watching;
+  $('#room-invite').lastElementChild.textContent = watching ? '复制观战链接' : '复制邀请';
+  $('#watch-invite').hidden = watching;
+  $('#leave-room').lastElementChild.textContent = watching ? '退出观战' : '退出房间';
+  $('#spectator-count').lastElementChild.textContent = `${room.spectatorCount} 人观战`;
+  board.setAttribute('aria-label', watching ? '观战棋盘，使用方向键查看落点' : '五子棋棋盘，使用方向键移动，按回车落子');
   const chip = $('#board-state');
   chip.classList.toggle('active', connected && playing);
   chip.querySelector('span').textContent = !connected ? '正在重连' : playing ? `${game.turn === 1 ? '黑棋' : '白棋'}回合` : finished ? '对局已结束' : '等待开局';
@@ -264,15 +319,19 @@ function renderRoom(room) {
   }
   const [symbol, title, description] = matchMessage(room);
   const status = $('#match-status');
-  if (status.dataset.message !== title) {
+  const summary = `${title} ${description}`;
+  if (status.dataset.message !== summary) {
     status.innerHTML = `<span>${icon(symbol)}</span><div><strong>${title}</strong><p>${description}</p></div>`;
-    status.dataset.message = title;
+    status.dataset.message = summary;
   }
-  readyButton.hidden = playing;
-  readyButton.lastElementChild.textContent = seats[seat].ready ? '取消准备' : finished && seats.every(Boolean) ? '再来一局' : '准备';
-  readyButton.classList.toggle('button-outline', seats[seat].ready);
-  readyButton.classList.toggle('button-primary', !seats[seat].ready);
-  $('.game-side').classList.toggle('playing', playing || finished);
+  const ready = Boolean(seats[seat]?.ready);
+  readyButton.hidden = playing || watching;
+  readyButton.lastElementChild.textContent = ready ? '取消准备' : finished && seats.every(Boolean) ? '再来一局' : '准备';
+  readyButton.classList.toggle('button-outline', ready);
+  readyButton.classList.toggle('button-primary', !ready);
+  $('#take-seat').hidden = !watching || playing || seats.every(Boolean);
+  $('.game-side').classList.toggle('playing', playing || finished || watching);
+  renderGuidance(room, watching);
 }
 
 function render() {
@@ -288,9 +347,10 @@ function render() {
   if (room) renderRoom(room);
   else renderLobby();
   const id = room?.id ?? null;
+  if (id || visibleRoom) syncURL(id, room?.seat === -1);
   if (id !== visibleRoom) {
     visibleRoom = id;
-    syncURL(id);
+    if (!id) delete guidanceLog.dataset.room;
     window.scrollTo(0, 0);
     if (id && !dialog.open) $('#room-title').focus({ preventScroll: true });
     else if (!id) navLobby.focus({ preventScroll: true });
@@ -329,7 +389,8 @@ const prompts = {
   'enter-code': { title: '用房间号加入', copy: '输入好友发来的四位房间号。', label: '房间号', placeholder: '例如：1001', max: 4, submit: '进入房间', required: true },
   leave: { title: '退出房间？', copy: '对弈正在进行。现在退出，本局将判对方获胜。', submit: '确认退出' },
   rules: { title: '游戏规则', copy: '<p>弈间使用自由五子棋规则。</p><ul><li>两人入座后分别准备，双方就绪时自动开局。</li><li>黑棋先行，双方轮流在空交叉点落一子。</li><li>横、竖或斜线连成五颗或更多同色棋子，即可获胜。</li><li>棋盘下满且无人连成五子，则为和棋。</li></ul>' },
-  invite: { title: '邀请棋友', copy: '复制下面的链接发送给好友。', label: '房间邀请链接' }
+  invite: { title: '邀请棋友', copy: '复制下面的链接发送给好友。', label: '房间邀请链接' },
+  'watch-invite': { title: '邀请观战', copy: '好友打开链接后会进入观战视角。', label: '房间观战链接' }
 };
 
 function openDialog(action, value = '') {
@@ -345,7 +406,7 @@ function openDialog(action, value = '') {
   dialogInput.value = prompt.label ? value : '';
   dialogInput.placeholder = prompt.placeholder ?? '';
   dialogInput.required = Boolean(prompt.required);
-  dialogInput.readOnly = action === 'invite';
+  dialogInput.readOnly = !prompt.submit;
   dialogInput.inputMode = action === 'enter-code' ? 'numeric' : 'text';
   dialogInput.maxLength = prompt.max ?? 4000;
   dialogInput.pattern = action === 'enter-code' ? '[0-9]{4}' : '.*';
@@ -359,17 +420,26 @@ function openDialog(action, value = '') {
   } else dialogTitle.focus();
 }
 
-async function copyInvite() {
+async function copyInvite(watching) {
   if (!state?.room) return;
   const url = new URL('/', location.href);
   url.searchParams.set('room', state.room.id);
+  if (watching) url.searchParams.set('view', 'watch');
   try {
     await navigator.clipboard.writeText(url.href);
-    toast('邀请链接已复制');
+    toast(watching ? '观战链接已复制' : '邀请链接已复制');
   } catch {
-    openDialog('invite', url.href);
+    openDialog(watching ? 'watch-invite' : 'invite', url.href);
   }
 }
+
+$('#guidance-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const draft = guidanceInput.value;
+  const text = draft.trim();
+  if (!text || state?.room?.seat !== -1) return;
+  if (await run('guidance', { text }) && guidanceInput.value === draft) guidanceInput.value = '';
+});
 
 $('#dialog-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -404,7 +474,7 @@ document.addEventListener('click', event => {
   if (!button || button.disabled) return;
   switch (button.dataset.action) {
     case 'lobby':
-      if (state?.room?.game?.status === 'playing') openDialog('leave');
+      if (state?.room?.game?.status === 'playing' && state.room.seat !== -1) openDialog('leave');
       else if (state?.room) run('leave');
       else window.scrollTo(0, 0);
       break;
@@ -423,8 +493,14 @@ document.addEventListener('click', event => {
       run('quick');
       break;
     case 'join':
-      run('join', { id: button.dataset.id });
+    case 'watch':
+      run(button.dataset.action, { id: button.dataset.id });
       break;
+    case 'take-seat': {
+      const room = state?.room;
+      if (room?.seat === -1) run('join', { id: room.id });
+      break;
+    }
     case 'filter':
       filter = button.dataset.filter;
       for (const option of document.querySelectorAll('[data-filter]')) option.setAttribute('aria-pressed', String(option === button));
@@ -432,12 +508,20 @@ document.addEventListener('click', event => {
       break;
     case 'ready': {
       const room = state?.room;
-      if (room) run('ready', { ready: !room.seats[room.seat].ready });
+      if (room?.seats[room.seat]) run('ready', { ready: !room.seats[room.seat].ready });
       break;
     }
     case 'invite':
-      copyInvite();
+    case 'watch-invite':
+      copyInvite(button.dataset.action === 'watch-invite' || state?.room?.seat === -1);
       break;
+    case 'guidance-panel':
+    case 'board-panel': {
+      const target = button.dataset.action === 'guidance-panel' ? $('#guidance-title') : $('#board-toolbar');
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'start' });
+      break;
+    }
   }
 });
 
