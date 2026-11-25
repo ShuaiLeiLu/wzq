@@ -21,3 +21,11 @@ npm.cmd start
 同一局域网内，其他设备使用运行服务的电脑的局域网地址，例如 `http://192.168.1.10:3000`。跨网络对弈需要把项目部署到双方都能访问的主机，反向代理应支持实时事件流（SSE），并关闭该路径的响应缓冲。
 
 棋室、昵称和棋局保存在服务进程的内存中，重启服务会清空。短暂断线后可以回到原座位，掉线超过 45 秒会释放座位。
+
+## 自动发布
+
+线上棋室使用 [https://wzq.zhisuanapi.cn](https://wzq.zhisuanapi.cn)。
+
+向 `main` 推送后，GitHub Actions 会检查 JavaScript 语法，并通过独立部署密钥上传对应版本。也可以从 GitHub 仓库的 Actions 页面手动运行 `Deploy Gomoku`。服务器启动新版后检查 `/healthz`，检查失败时会尝试恢复上一版本。每次发布重启服务，会清空正在进行的对局。
+
+服务器使用 `ops/wzq.service` 和 `ops/deploy.sh`，由现有 Caddy 按 `ops/wzq.caddy` 提供 HTTPS 反代。自动发布需要仓库密钥 `WZQ_DEPLOY_SSH_KEY`，以及变量 `WZQ_DEPLOY_HOST` 和 `WZQ_DEPLOY_KNOWN_HOST`。

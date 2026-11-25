@@ -1,0 +1,4 @@
+wzq.zhisuanapi.cn {
+	log_skip /api/events
+	reverse_proxy 127.0.0.1:3041
+}

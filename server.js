@@ -228,6 +228,8 @@ const server = createServer(async (req, res) => {
     return send(res, 403, { error: '请直接打开游戏页面。' });
   }
 
+  if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true });
+
   if (req.method === 'GET' && url.pathname === '/api/events') {
     const player = players.get(url.searchParams.get('token'));
     res.writeHead(200, {

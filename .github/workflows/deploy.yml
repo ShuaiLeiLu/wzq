@@ -1,0 +1,51 @@
+name: Deploy Gomoku
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wzq-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+
+      - name: Check JavaScript
+        run: |
+          node --check server.js
+          node --check public/app.js
+
+      - name: Deploy the checked revision
+        env:
+          DEPLOY_KEY: ${{ secrets.WZQ_DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ vars.WZQ_DEPLOY_HOST }}
+          DEPLOY_HOST_KEY: ${{ vars.WZQ_DEPLOY_KNOWN_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_HOST" && test -n "$DEPLOY_HOST_KEY"
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$DEPLOY_HOST_KEY" > "$ssh_dir/known_hosts"
+          git archive --format=tar.gz "$GITHUB_SHA" |
+            ssh -T -i "$ssh_dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+              -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+              "wzq-deploy@$DEPLOY_HOST" "deploy $GITHUB_SHA"
