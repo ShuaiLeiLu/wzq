@@ -288,12 +288,11 @@ function showBarrage() {
     entry.dataset.lane = lane;
     entry.style.setProperty('--lane', lane);
     entry.innerHTML = `<span class="barrage-author">${escapeHTML(message.name)}</span><span class="barrage-text">${escapeHTML(message.text)}</span>`;
-    barrage.append(entry);
-    setTimeout(() => {
-      if (!entry.isConnected) return;
+    entry.addEventListener('animationend', () => {
       entry.remove();
       showBarrage();
-    }, 7000);
+    }, { once: true });
+    barrage.append(entry);
   }
 }
 

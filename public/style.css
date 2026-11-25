@@ -222,11 +222,14 @@ main { flex: 1; }
 .point[aria-disabled="false"]:focus-visible .stone-disc { opacity: .55; }
 .point.win .stone-disc { outline: 2px solid var(--win); outline-offset: 2px; }
 .point.last .stone-disc::after { content: ''; position: absolute; inset: 34%; border-radius: 50%; border: max(1px, .15vw) solid var(--marker); }
-.barrage { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
-.barrage-message { position: absolute; top: calc(6% + var(--lane) * 30px); left: 100%; display: flex; align-items: center; gap: 6px; max-width: 78%; padding: 3px 9px; border-radius: 5px; background: var(--barrage-bg); color: var(--ink-on-dark); font-size: 13px; line-height: 1.5; white-space: nowrap; animation: barrage-pass 7s linear both; }
+.barrage { --barrage-duration: 6.5s; position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; container-type: inline-size; }
+.barrage-message { position: absolute; top: calc(6% + var(--lane) * 30px); left: 100%; display: flex; align-items: center; gap: 6px; max-width: 78%; padding: 3px 9px; border-radius: 5px; background: var(--barrage-bg); color: var(--ink-on-dark); font-size: 13px; line-height: 1.5; white-space: nowrap; animation: barrage-pass var(--barrage-duration) linear both; }
 .barrage-author, .barrage-text { overflow: hidden; text-overflow: ellipsis; }
 .barrage-author { max-width: 7em; flex: none; color: var(--gold); font-size: 11px; }
-@keyframes barrage-pass { to { left: 0; transform: translateX(-100%); } }
+@keyframes barrage-pass {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-100cqw - 100%)); }
+}
 .game-panel { padding: 18px; }
 .game-panel h2 { font: 700 22px/1.2 var(--font-display); }
 .players-heading, .guidance-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -364,6 +367,7 @@ dialog::backdrop { background: var(--backdrop); }
   .board-tools .link-button { padding-inline: 5px; }
   .board-tools .link-button [data-icon] { display: none; }
   #move-count { display: none; }
+  .barrage { --barrage-duration: 5.5s; }
   .barrage-message { top: calc(7% + var(--lane) * 25px); max-width: 88%; font-size: 12px; }
 }
 
@@ -372,6 +376,6 @@ dialog::backdrop { background: var(--backdrop); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; animation: none !important; }
-  .barrage-message { left: 8px; }
+  /* The board's barrage switch controls message motion. */
+  :not(.barrage-message), *::before, *::after { transition: none !important; animation: none !important; }
 }
