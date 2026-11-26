@@ -370,6 +370,14 @@ input::placeholder { color: #8b8270; }
 .seat-clock.paused .clock-time { color: var(--ink-3); }
 .seat-clock.paused .clock-bar i { background: #b9ae98; }
 .seat-actions { display: flex; flex-direction: column; gap: 10px; }
+.handicap { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--paper); }
+.handicap-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.handicap-head small { margin-left: auto; font-size: 12px; color: var(--ink-3); text-align: right; }
+.handicap-head small.mine { color: var(--gold-text); font-weight: 600; }
+.segmented-sm button { flex: 1; height: 32px; padding: 0 6px; font-size: 13px; }
+.segmented-sm button:disabled { opacity: 0.5; }
+.undo-left { font-size: 12px; font-weight: 500; color: var(--ink-3); }
+.undo-timer { font: 700 15px var(--serif); color: var(--gold-text) !important; font-variant-numeric: tabular-nums; }
 .seat-actions:not(:has(> :not([hidden]))) { display: none; }
 .versus { display: flex; align-items: center; gap: 12px; padding: 0 8px; color: var(--ink-3); font: 14px var(--serif); letter-spacing: 0.3em; }
 .versus i { flex: 1; height: 1px; background: var(--line-mid); }
@@ -446,6 +454,7 @@ input::placeholder { color: #8b8270; }
 .msg.self .msg-meta b { color: var(--gold-text); }
 .role { flex: none; padding: 0 6px; border-radius: 4px; font-size: 11px; background: rgba(212, 176, 106, 0.18); color: var(--gold-text); }
 .role.viewer { background: rgba(107, 98, 83, 0.1); color: var(--ink-3); }
+.msg-system { align-self: center; max-width: 92%; padding: 4px 12px; border-radius: 999px; background: var(--paper); color: var(--ink-3); font-size: 12px; text-align: center; }
 .msg p { font-size: 14px; line-height: 1.55; color: #3a3329; overflow-wrap: anywhere; }
 .chat-form { display: flex; gap: 8px; padding: 14px; border-top: 1px solid var(--line); }
 .chat-form input { flex: 1 1 auto; min-width: 0; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-mid); background: var(--soft); font-size: 14px; outline: none; }

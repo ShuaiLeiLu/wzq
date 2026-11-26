@@ -5,6 +5,8 @@ const SIZE = 15;
 const COLUMNS = Array.from({ length: SIZE }, (_, index) => String.fromCharCode(65 + index));
 const SESSION_KEY = 'yijian-session';
 const BARRAGE_KEY = 'yijian-barrage';
+const HANDICAP_LABELS = ['不让', '让先', '让二子', '让三子'];
+const RULES = '自由五子棋 · 15 × 15 · 每手 30 秒';
 
 const el = {
   lobby: $('#lobby'),
@@ -21,6 +23,8 @@ const el = {
   chatInput: $('#chat-input'),
   ready: $('#ready'),
   takeSeat: $('#take-seat'),
+  undo: $('#undo'),
+  undoDialog: $('#undo-dialog'),
   upperSeat: $('#upper-seat'),
   lowerSeat: $('#lower-seat'),
   dialog: $('#dialog'),
@@ -404,6 +408,7 @@ function matchMessage(room) {
       if (game.reason === 'timeout') return ['clock', title, `${game.turn === 1 ? '黑棋' : '白棋'}落子超时。`];
       return ['trophy', title, game.reason === 'left' ? '有一位棋手退出了本局。' : '本局已结束，可以留在棋室观看下一局。'];
     }
+    if (game?.undo) return ['undo', `${game.undo.color === 1 ? '黑棋' : '白棋'}请求悔棋`, '等待对方回应，计时已暂停。'];
     if (game?.status === 'playing') return seats.every(person => person?.online)
       ? ['eye', '正在观战', game.moves === 0 ? '黑棋先行，棋盘会实时更新。' : '棋盘会随着棋手落子实时更新。']
       : ['clock', '棋手正在重连', '双方恢复连接后可以继续对弈。'];
@@ -420,6 +425,9 @@ function matchMessage(room) {
     if (game.reason === 'left') return ['trophy', '你获胜了', '对方已离开。你可以邀请新的棋友入座。'];
     return ['trophy', game.winner === seat + 1 ? '你获胜了' : '对方获胜', '棋盘已标出连线。双方再次准备即可开局。'];
   }
+  if (game?.undo) return game.undo.color === seat + 1
+    ? ['undo', '已申请悔棋', '等待对方回应，计时已暂停；10 秒内未回应视为拒绝。']
+    : ['undo', '对方请求悔棋', '请在弹窗中选择同意或拒绝，计时已暂停。'];
   if (!opponent) return ['users', '等待棋友入座', '复制邀请链接发给好友，或等待大厅中的棋友加入。'];
   if (!opponent.online) return ['clock', '对方正在重连', '棋室会为对方保留座位 45 秒。'];
   if (game?.status === 'playing') {
@@ -436,7 +444,9 @@ function renderSeat(node, room, index, isSelf) {
   const playing = game?.status === 'playing';
   const active = Boolean(person?.online && (playing ? game.turn === index + 1 : person.ready));
   const label = !person ? '空座' : !person.online ? '重连中' : playing ? (game.turn === index + 1 ? '落子中' : '等待') : person.ready ? '已准备' : '未准备';
-  const color = game ? (index === 0 ? '黑棋' : '白棋') : '开局时抽签分黑白';
+  const color = playing || (game && !room.handicap) ? (index === 0 ? '黑棋' : '白棋')
+    : room.handicap ? (room.handicap.giver === index ? `下局执白 · ${HANDICAP_LABELS[room.handicap.level]}` : '下局执黑 · 受让')
+      : '开局时抽签分黑白';
   const name = person?.name ?? '等待棋友入座';
 
   node.classList.toggle('vacant', !person);
@@ -462,6 +472,8 @@ function renderRoom(room) {
 
   setText($('#room-title'), room.name);
   setText($('#room-code'), `#${room.id}`);
+  const handicapLevel = playing ? game.handicap : room.handicap?.level ?? 0;
+  setText($('#room-facts'), handicapLevel ? `${RULES} · ${HANDICAP_LABELS[handicapLevel]} · 不计排行` : RULES);
   $('#watch-badge').hidden = !watching;
   $('#watch-invite').hidden = watching;
   setText($('#invite span'), watching ? '复制观战链接' : '复制邀请');
@@ -505,13 +517,55 @@ function renderRoom(room) {
   el.ready.className = `btn btn-block ${ready ? 'btn-line' : 'btn-gold'}`;
   setText(el.ready.querySelector('span'), ready ? '取消准备' : finished && seats.every(Boolean) ? '再来一局' : '准备');
   el.takeSeat.hidden = !watching || playing || seats.every(Boolean);
+  renderHandicap(room);
+  renderUndo(room);
 
   renderChat(room);
   renderResult(room);
 }
 
+function renderHandicap(room) {
+  const block = $('#handicap');
+  block.hidden = room.seat === -1 || room.game?.status === 'playing';
+  if (block.hidden) return;
+  const handicap = room.handicap;
+  const mine = handicap?.giver === room.seat;
+  for (const button of block.querySelectorAll('[data-level]')) {
+    const level = Number(button.dataset.level);
+    button.setAttribute('aria-pressed', String(handicap ? mine && handicap.level === level : level === 0));
+  }
+  const note = $('#handicap-note');
+  note.classList.toggle('mine', Boolean(handicap));
+  setText(note, !handicap ? '让子局不计排行'
+    : mine ? `你${HANDICAP_LABELS[handicap.level]}，将执白`
+      : `对方${HANDICAP_LABELS[handicap.level]}给你，你将执黑`);
+}
+
+function renderUndo(room) {
+  const { game, seat } = room;
+  const playing = game?.status === 'playing';
+  el.undo.hidden = seat === -1 || !playing;
+  if (!el.undo.hidden) {
+    const waiting = game.undo?.color === seat + 1;
+    el.undo.disabled = !connected || room.undoColor !== seat + 1;
+    setText(el.undo.querySelector('span'), waiting ? '等待对方回应…' : '悔棋');
+    setText($('#undo-left'), `剩 ${game.undoLeft[seat]} 次`);
+  }
+  const asked = playing && game.undo && seat !== -1 && game.undo.color !== seat + 1;
+  if (asked && !el.undoDialog.open) {
+    const requester = room.seats[game.undo.color - 1]?.name ?? '对方';
+    setText($('#undo-title'), `${requester} 请求悔棋`);
+    for (const button of el.undoDialog.querySelectorAll('button')) button.disabled = !connected;
+    el.undoDialog.showModal();
+  } else if (!asked && el.undoDialog.open) el.undoDialog.close();
+}
+
 function renderClock() {
   const game = state?.room?.game;
+  if (el.undoDialog.open && game?.undo) {
+    const left = Math.max(0, Math.ceil((game.undo.deadline - (state.serverTime + performance.now() - syncedAt)) / 1000));
+    setText($('#undo-timer'), `${left} 秒后自动拒绝`);
+  }
   const show = connected && game?.status === 'playing';
   for (const seatNode of [el.upperSeat, el.lowerSeat]) {
     const clock = seatNode.querySelector('.seat-clock');
@@ -522,7 +576,7 @@ function renderClock() {
     const remaining = Math.max(0, paused ? game.turnRemaining : game.turnDeadline - (state.serverTime + performance.now() - syncedAt));
     const seconds = Math.ceil(remaining / 1000);
     setText(clock.querySelector('.clock-time'), `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
-    setText(clock.querySelector('.clock-note'), paused ? '已暂停，等待重连' : '剩余时间');
+    setText(clock.querySelector('.clock-note'), !paused ? '剩余时间' : game.undo ? '悔棋请求中，已暂停' : '已暂停，等待重连');
     clock.querySelector('.clock-bar i').style.transform = `scaleX(${Math.min(1, remaining / TURN_MS).toFixed(4)})`;
     clock.classList.toggle('paused', paused);
     clock.classList.toggle('low', !paused && seconds <= 5);
@@ -550,6 +604,10 @@ function renderChat(room) {
   $('#chat-empty').hidden = Boolean(guidance.length);
   const incoming = guidance.filter(message => message.id > latest);
   for (const message of incoming) {
+    if (message.seat === -2) {
+      el.chatLog.insertAdjacentHTML('beforeend', `<p class="msg-system" data-id="${message.id}">${escapeHTML(message.text)}</p>`);
+      continue;
+    }
     const role = message.seat === 0 ? '黑棋' : message.seat === 1 ? '白棋' : '观众';
     const self = isSelfMessage(message, room);
     el.chatLog.insertAdjacentHTML('beforeend', `<div class="msg${self ? ' self' : ''}" data-id="${message.id}">
@@ -558,7 +616,7 @@ function renderChat(room) {
     </div>`);
   }
   if (incoming.length && !entering && el.barrageToggle.getAttribute('aria-pressed') === 'true') {
-    barrageQueue.push(...incoming.slice(-6).map(message => ({ ...message, self: isSelfMessage(message, room) })));
+    barrageQueue.push(...incoming.filter(message => message.seat !== -2).slice(-6).map(message => ({ ...message, self: isSelfMessage(message, room) })));
     if (barrageQueue.length > 6) barrageQueue.splice(0, barrageQueue.length - 6);
     showBarrage();
   }
@@ -631,14 +689,14 @@ function renderResult(room) {
     copy = game.reason === 'timeout' ? '每手限时 30 秒，下局注意时间。' : '胜败乃兵家常事，再来一局扳回来。';
   }
   setText($('#result-title'), title);
-  setText($('#result-copy'), copy);
+  setText($('#result-copy'), game.handicap ? `${copy}（${HANDICAP_LABELS[game.handicap]}局，不计排行）` : copy);
   setText($('#result-moves'), String(game.moves));
   setText($('#result-reason'), reason);
   const pair = room.seats.every(Boolean);
   $('#result-again').hidden = watching;
   setText($('#result-again').querySelector('b'), pair ? '再来一局' : '准备下一局');
   setText($('#result-again-note'), pair ? '原班续局交换黑白' : '等待新棋友入座');
-  if (!el.dialog.open && !el.auth.open && !el.ranking.open && !el.result.open) el.result.showModal();
+  if (![el.dialog, el.auth, el.ranking, el.result, el.undoDialog].some(node => node.open)) el.result.showModal();
 }
 
 /* ---------- Render ---------- */
@@ -680,7 +738,7 @@ const prompts = {
   leave: { title: '退出棋室？', copy: '对弈正在进行。现在退出，本局将判对方获胜。', submit: '确认退出' },
   rules: {
     title: '游戏规则',
-    copy: '<p>弈间使用自由五子棋规则，棋盘 15 × 15。</p><ul><li>双方点击「准备」后自动开局。首局随机分配黑白，原班两人续局交换黑白，换棋手后重新抽签。</li><li>黑棋先行，双方轮流在空交叉点落一子。每手限时 30 秒，超时判负。</li><li>横、竖或斜线连成五颗或更多同色棋子即获胜；棋盘下满无人连五则为和棋。</li><li>登录智算账号后对局计入每日排行：胜 +1、负 −1、和棋不变，北京时间 00:00 重置。</li><li>棋手断线会暂停计时并保留座位 45 秒，超时未回则判对方获胜。</li></ul>'
+    copy: '<p>弈间使用自由五子棋规则，棋盘 15 × 15。</p><ul><li>双方点击「准备」后自动开局。首局随机分配黑白，原班两人续局交换黑白，换棋手后重新抽签。</li><li>黑棋先行，双方轮流在空交叉点落一子。每手限时 30 秒，超时判负。</li><li>横、竖或斜线连成五颗或更多同色棋子即获胜；棋盘下满无人连五则为和棋。</li><li>让子：开局前由让方在棋室选择「让先 / 让二子 / 让三子」，被让方固定执黑。让二子、三子会先在 H8、I9（三子再加 G9）摆好黑子，由白棋先走。修改让子会取消双方准备，重新准备即视为同意；有人离座则恢复不让。让子局不计入排行。</li><li>悔棋：自己落子后、对方落子前，可申请撤回自己的上一手，需对方同意，10 秒未回应视为拒绝，等待期间暂停计时。同意后由你重新落子并重新计时。每人每局可申请 3 次，被拒绝的同一手不能再申请。</li><li>登录智算账号后对局计入每日排行：胜 +1、负 −1、和棋不变，北京时间 00:00 重置。</li><li>棋手断线会暂停计时并保留座位 45 秒，超时未回则判对方获胜。</li></ul>'
   },
   invite: { title: '邀请棋友', copy: '复制下面的链接发送给好友，打开即可入座。', label: '房间邀请链接' },
   'watch-invite': { title: '邀请观战', copy: '好友打开链接后会进入观战视角。', label: '房间观战链接' }
@@ -818,6 +876,8 @@ function showJoinError(message) {
 el.auth.addEventListener('cancel', event => { if (authBusy) event.preventDefault(); });
 el.auth.addEventListener('close', () => el.authForm.reset());
 el.ranking.addEventListener('close', () => clearInterval(rankingTimer));
+// The request needs an answer; Esc must not silently dismiss it.
+el.undoDialog.addEventListener('cancel', event => event.preventDefault());
 el.rankingRetry.addEventListener('click', refreshRanking);
 document.addEventListener('error', event => {
   if (event.target.matches?.('.avatar img')) event.target.remove();
@@ -961,6 +1021,17 @@ document.addEventListener('click', event => {
     case 'join':
     case 'watch':
       run(button.dataset.action, { id: button.dataset.id });
+      break;
+    case 'handicap':
+      run('handicap', { level: Number(button.dataset.level) });
+      break;
+    case 'undo':
+      run('undo');
+      break;
+    case 'undo-accept':
+    case 'undo-reject':
+      el.undoDialog.close();
+      run('undo-reply', { accept: button.dataset.action === 'undo-accept' });
       break;
     case 'take-seat':
       if (room?.seat === -1) run('join', { id: room.id });

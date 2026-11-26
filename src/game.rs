@@ -13,6 +13,12 @@ use crate::ranking::{ChampionBroadcast, RankedMatch, RankedPlayer, RankedResult}
 const SIZE: usize = 15;
 const TURN_MS: u64 = 30_000;
 const DISCONNECT_MS: u64 = 45_000;
+const UNDO_MS: u64 = 10_000;
+const UNDO_LIMIT: u8 = 3;
+/// Black stones placed before a handicap game, indexed by handicap level
+/// (0 none, 1 让先, 2 让二子, 3 让三子): H8, I9 and G9.
+const HANDICAP_STONES: [&[usize]; 4] = [&[], &[], &[112, 128], &[112, 128, 126]];
+const HANDICAP_LABELS: [&str; 4] = ["不让", "让先", "让二子", "让三子"];
 pub const ACCOUNT_SECONDS: u64 = 12 * 60 * 60;
 type Failure = &'static str;
 
@@ -47,6 +53,13 @@ struct Account {
     expires: u64,
 }
 
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UndoRequest {
+    color: u8,
+    deadline: u64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Match {
@@ -60,23 +73,44 @@ struct Match {
     reason: Option<&'static str>,
     turn_deadline: Option<u64>,
     turn_remaining: Option<u64>,
+    handicap: u8,
+    undo: Option<UndoRequest>,
+    undo_left: [u8; 2],
+    #[serde(skip)]
+    history: Vec<usize>,
+    #[serde(skip)]
+    undo_refused: Option<usize>,
     #[serde(skip)]
     ranked: Option<(RankedMatch, UnboundedSender<RankedResult>)>,
 }
 
 impl Match {
-    fn new(now: u64, ranked: Option<(RankedMatch, UnboundedSender<RankedResult>)>) -> Self {
+    fn new(
+        now: u64,
+        ranked: Option<(RankedMatch, UnboundedSender<RankedResult>)>,
+        handicap: u8,
+    ) -> Self {
+        let stones = HANDICAP_STONES[usize::from(handicap)];
+        let mut board = vec![0; SIZE * SIZE];
+        for &index in stones {
+            board[index] = 1;
+        }
         Self {
             status: "playing",
-            board: vec![0; SIZE * SIZE],
-            turn: 1,
-            moves: 0,
+            board,
+            turn: if stones.is_empty() { 1 } else { 2 },
+            moves: stones.len(),
             last: None,
             line: Vec::new(),
             winner: None,
             reason: None,
             turn_deadline: Some(now + TURN_MS),
             turn_remaining: None,
+            handicap,
+            undo: None,
+            undo_left: [UNDO_LIMIT; 2],
+            history: Vec::new(),
+            undo_refused: None,
             ranked,
         }
     }
@@ -87,6 +121,7 @@ impl Match {
 
     fn finish(&mut self, winner: Option<u8>, reason: &'static str) {
         self.status = "finished";
+        self.undo = None;
         self.winner = winner;
         self.reason = Some(reason);
         self.turn_deadline = None;
@@ -110,6 +145,15 @@ impl Match {
         if !self.playing() || self.expire(now) {
             return;
         }
+        // The clock is already paused while an undo request waits. A seated
+        // player dropping cancels the request and refunds it.
+        if let Some(request) = self.undo {
+            if !online {
+                self.undo = None;
+                self.undo_left[usize::from(request.color - 1)] += 1;
+            }
+            return;
+        }
         match (online, self.turn_deadline) {
             (false, Some(deadline)) => {
                 self.turn_remaining = Some(deadline - now);
@@ -129,6 +173,9 @@ impl Match {
         if !self.playing() {
             return Err("请等待双方准备后开局。");
         }
+        if self.undo.is_some() {
+            return Err("正在等待悔棋回应。");
+        }
         if self.turn_deadline.is_none() {
             return Err("棋友正在重连，请稍候。");
         }
@@ -140,6 +187,7 @@ impl Match {
             .ok_or("请选择棋盘上的空交叉点。")?;
         self.board[index] = color;
         self.last = Some(index);
+        self.history.push(index);
         self.moves += 1;
         self.line = winning_line(&self.board, index, color);
         if !self.line.is_empty() {
@@ -151,6 +199,72 @@ impl Match {
             self.turn_deadline = Some(now + TURN_MS);
         }
         Ok(())
+    }
+
+    /// The color that may ask to take back its last move right now: the
+    /// player who just moved, before the opponent replies.
+    fn undo_candidate(&self) -> Option<u8> {
+        if !self.playing() || self.undo.is_some() || self.undo_refused == Some(self.history.len()) {
+            return None;
+        }
+        let color = self.board[*self.history.last()?];
+        (color != self.turn && self.undo_left[usize::from(color - 1)] > 0).then_some(color)
+    }
+
+    fn request_undo(&mut self, color: u8, now: u64) -> Result<(), Failure> {
+        if self.expire(now) || !self.playing() {
+            return Err("对局已结束，不能悔棋。");
+        }
+        if self.undo.is_some() {
+            return Err("已有悔棋请求在等待回应。");
+        }
+        let Some(deadline) = self.turn_deadline else {
+            return Err("棋友正在重连，请稍候。");
+        };
+        if self.undo_candidate() != Some(color) {
+            return Err(if self.undo_left[usize::from(color - 1)] == 0 {
+                "本局悔棋次数已用完。"
+            } else if self.undo_refused == Some(self.history.len()) {
+                "这一手的悔棋已被拒绝。"
+            } else {
+                "只能在对方落子前撤回自己的上一手。"
+            });
+        }
+        self.turn_deadline = None;
+        self.turn_remaining = Some(deadline - now);
+        self.undo_left[usize::from(color - 1)] -= 1;
+        self.undo = Some(UndoRequest {
+            color,
+            deadline: now + UNDO_MS,
+        });
+        Ok(())
+    }
+
+    fn resolve_undo(&mut self, accept: bool, now: u64) {
+        let Some(request) = self.undo.take() else {
+            return;
+        };
+        let remaining = self.turn_remaining.take().unwrap_or(TURN_MS);
+        if accept {
+            let index = self.history.pop().expect("undo needs a played move");
+            self.board[index] = 0;
+            self.moves -= 1;
+            self.last = self.history.last().copied();
+            self.turn = request.color;
+            self.turn_deadline = Some(now + TURN_MS);
+            self.undo_refused = None;
+        } else {
+            self.undo_refused = Some(self.history.len());
+            self.turn_deadline = Some(now + remaining);
+        }
+    }
+
+    fn expire_undo(&mut self, now: u64) -> bool {
+        if self.undo.is_some_and(|request| now >= request.deadline) {
+            self.resolve_undo(false, now);
+            return true;
+        }
+        false
     }
 }
 
@@ -191,6 +305,13 @@ struct Message {
     seat: i8,
 }
 
+const SYSTEM_SEAT: i8 = -2;
+
+struct Handicap {
+    giver: String,
+    level: u8,
+}
+
 struct Room {
     id: String,
     name: String,
@@ -200,6 +321,7 @@ struct Room {
     spectators: HashSet<String>,
     game: Option<Match>,
     same_pair_rematch: bool,
+    handicap: Option<Handicap>,
     guidance: VecDeque<Message>,
     next_message: u64,
 }
@@ -215,6 +337,7 @@ impl Room {
             spectators: HashSet::new(),
             game: None,
             same_pair_rematch: false,
+            handicap: None,
             guidance: VecDeque::new(),
             next_message: 1,
         }
@@ -237,11 +360,33 @@ impl Room {
         self.spectators.len() < 30 && (self.count() > 0 || !self.spectators.is_empty())
     }
 
+    /// Seat 0 plays black. A handicap giver always takes white.
     fn assign_colors(&mut self) {
-        if self.same_pair_rematch || OsRng.gen_bool(0.5) {
+        if let Some(handicap) = &self.handicap {
+            if self.seats[0].as_deref() == Some(handicap.giver.as_str()) {
+                self.seats.swap(0, 1);
+            }
+        } else if self.same_pair_rematch || OsRng.gen_bool(0.5) {
             self.seats.swap(0, 1);
         }
         self.same_pair_rematch = true;
+    }
+
+    fn post(&mut self, name: String, text: String, seat: i8) {
+        self.guidance.push_back(Message {
+            id: self.next_message,
+            name,
+            text,
+            seat,
+        });
+        self.next_message += 1;
+        if self.guidance.len() > 40 {
+            self.guidance.pop_front();
+        }
+    }
+
+    fn announce(&mut self, text: String) {
+        self.post("棋室".into(), text, SYSTEM_SEAT);
     }
 }
 
@@ -423,6 +568,8 @@ impl Store {
                     "name": person.name, "ready": person.ready, "online": person.connection.is_some(),
                     "avatar": self.profile(person).map_or("", |profile| profile.avatar.as_str()) }))),
                 "game": room.game, "guidance": room.guidance,
+                "handicap": room.handicap.as_ref().map(|handicap| json!({ "level": handicap.level, "giver": room.seat(&handicap.giver) })),
+                "undoColor": room.game.as_ref().and_then(Match::undo_candidate),
                 "spectatorCount": room.spectators.iter().filter(|name| self.online(name)).count()
             }))
         })
@@ -495,6 +642,10 @@ impl Store {
                 .all(|key| self.players[key].ready)
         {
             self.rooms[index].assign_colors();
+            let handicap = self.rooms[index]
+                .handicap
+                .as_ref()
+                .map_or(0, |handicap| handicap.level);
             let players = self.rooms[index].seats.each_ref().map(|seat| {
                 let profile = self.profile(&self.players[seat.as_ref()?])?;
                 Some(RankedPlayer {
@@ -502,7 +653,8 @@ impl Store {
                     name: clean_name(Some(&profile.username), 32),
                 })
             });
-            let ranked = players.iter().any(Option::is_some).then(|| {
+            // Handicap games stay off the daily ranking.
+            let ranked = (handicap == 0 && players.iter().any(Option::is_some)).then(|| {
                 (
                     RankedMatch {
                         id: random_token(16),
@@ -512,7 +664,7 @@ impl Store {
                 )
             });
             let room = &mut self.rooms[index];
-            room.game = Some(Match::new(now, ranked));
+            room.game = Some(Match::new(now, ranked, handicap));
             for key in room.seats.iter().flatten() {
                 self.players.get_mut(key).expect("occupied seat").ready = false;
             }
@@ -531,6 +683,10 @@ impl Store {
         for room in &mut self.rooms {
             if let Some(game) = &mut room.game {
                 dirty |= game.expire(now);
+                if game.expire_undo(now) {
+                    room.announce("悔棋请求超时，已自动拒绝。".into());
+                    dirty = true;
+                }
             }
         }
         let expired: Vec<_> = self
@@ -567,6 +723,7 @@ impl Store {
         if let Some(seat) = room.seat(token) {
             room.seats[seat] = None;
             room.same_pair_rematch = false;
+            room.handicap = None;
             if let Some(game) = &mut room.game {
                 if !game.expire(now) && game.playing() {
                     game.finish(Some(2 - seat as u8), "left");
@@ -625,6 +782,7 @@ impl Store {
                 .expect("available seat") = Some(token.into());
             room.game = None;
             room.same_pair_rematch = false;
+            room.handicap = None;
         }
         let player = self.players.get_mut(token).expect("validated player");
         player.room = Some(room.id.clone());
@@ -651,17 +809,10 @@ impl Store {
             return Err("请稍等一秒再发送。");
         }
         player.last_message = Some(now);
+        let name = player.name.clone();
         let room = &mut self.rooms[index];
-        room.guidance.push_back(Message {
-            id: room.next_message,
-            name: player.name.clone(),
-            text: text.into(),
-            seat: room.seat(token).map_or(-1, |seat| seat as i8),
-        });
-        room.next_message += 1;
-        if room.guidance.len() > 40 {
-            room.guidance.pop_front();
-        }
+        let seat = room.seat(token).map_or(-1, |seat| seat as i8);
+        room.post(name, text.into(), seat);
         Ok(room.id.clone())
     }
 
@@ -739,6 +890,74 @@ impl Store {
                     data["ready"].as_bool().unwrap_or(false);
                 self.sync_room(index);
             }
+            Some("handicap") => {
+                let index = current
+                    .filter(|&i| self.rooms[i].seat(token).is_some())
+                    .ok_or("只有入座棋手可以设置让子。")?;
+                let level = data["level"]
+                    .as_u64()
+                    .and_then(|level| u8::try_from(level).ok())
+                    .filter(|&level| usize::from(level) < HANDICAP_LABELS.len())
+                    .ok_or("请选择让子档位。")?;
+                let name = self.players[token].name.clone();
+                let room = &mut self.rooms[index];
+                if room.playing() {
+                    return Err("对局进行中，无法修改让子。");
+                }
+                let unchanged = match &room.handicap {
+                    Some(handicap) => handicap.giver == token && handicap.level == level,
+                    None => level == 0,
+                };
+                if unchanged {
+                    return Ok(None);
+                }
+                room.handicap = (level > 0).then(|| Handicap {
+                    giver: token.into(),
+                    level,
+                });
+                room.announce(if level == 0 {
+                    format!("{name} 取消了让子。")
+                } else {
+                    format!(
+                        "{name} 设置{}，双方重新准备后生效。",
+                        HANDICAP_LABELS[usize::from(level)]
+                    )
+                });
+                for key in room.seats.iter().flatten() {
+                    self.players.get_mut(key).expect("occupied seat").ready = false;
+                }
+            }
+            Some("undo") => {
+                let now = self.now();
+                let index = current.ok_or("只有入座棋手可以悔棋。")?;
+                let name = self.players[token].name.clone();
+                let room = &mut self.rooms[index];
+                let color = room.seat(token).ok_or("只有入座棋手可以悔棋。")? as u8 + 1;
+                room.game
+                    .as_mut()
+                    .ok_or("对局尚未开始。")?
+                    .request_undo(color, now)?;
+                room.announce(format!("{name} 请求悔棋，等待对方回应。"));
+            }
+            Some("undo-reply") => {
+                let now = self.now();
+                let index = current.ok_or("没有需要回应的悔棋请求。")?;
+                let name = self.players[token].name.clone();
+                let room = &mut self.rooms[index];
+                let color = room.seat(token).ok_or("没有需要回应的悔棋请求。")? as u8 + 1;
+                let game = room
+                    .game
+                    .as_mut()
+                    .filter(|game| game.undo.is_some_and(|request| request.color != color))
+                    .ok_or("没有需要回应的悔棋请求。")?;
+                let accept = data["accept"].as_bool().unwrap_or(false);
+                game.resolve_undo(accept, now);
+                room.announce(if accept {
+                    format!("{name} 同意悔棋，已撤回一步。")
+                } else {
+                    format!("{name} 拒绝了悔棋。")
+                });
+            }
             Some("move") => {
                 let now = self.now();
                 let room = &mut self.rooms[current.ok_or("只有入座棋手可以落子。")?];
@@ -810,5 +1029,156 @@ mod tests {
         store.leave(&second);
         store.join(&newcomer, 0, false).unwrap();
         assert!(!store.rooms[0].same_pair_rematch);
+    }
+
+    /// Two connected guests seated in room 0.
+    fn seated_pair() -> (Store, String, String) {
+        let (scores, _results) = tokio::sync::mpsc::unbounded_channel();
+        let mut store = Store::new(scores);
+        let first = store.session(None, None);
+        let second = store.session(None, None);
+        for token in [&first, &second] {
+            store.connect(token);
+            store.join(token, 0, false).unwrap();
+        }
+        (store, first, second)
+    }
+
+    fn start(store: &mut Store, players: [&String; 2]) {
+        for token in players {
+            store
+                .command(token, &json!({"action": "ready", "ready": true}))
+                .unwrap();
+        }
+        assert!(store.rooms[0].playing());
+    }
+
+    /// Returns (black, white) tokens for the running game.
+    fn colors(store: &Store) -> (String, String) {
+        let seats = &store.rooms[0].seats;
+        (seats[0].clone().unwrap(), seats[1].clone().unwrap())
+    }
+
+    fn play(store: &mut Store, token: &str, index: usize) {
+        store
+            .command(token, &json!({"action": "move", "index": index}))
+            .unwrap();
+    }
+
+    #[test]
+    fn handicap_gives_the_receiver_black_preset_stones_and_skips_ranking() {
+        let (mut store, giver, receiver) = seated_pair();
+        store
+            .command(&giver, &json!({"action": "ready", "ready": true}))
+            .unwrap();
+        store
+            .command(&giver, &json!({"action": "handicap", "level": 3}))
+            .unwrap();
+        assert!(
+            !store.players[&giver].ready,
+            "changing handicap resets ready"
+        );
+        for _ in 0..2 {
+            start(&mut store, [&giver, &receiver]);
+            let room = &store.rooms[0];
+            assert_eq!(room.seats[1].as_deref(), Some(giver.as_str()));
+            let game = room.game.as_ref().unwrap();
+            assert_eq!((game.turn, game.moves, game.handicap), (2, 3, 3));
+            for index in [112, 128, 126] {
+                assert_eq!(game.board[index], 1);
+            }
+            assert!(game.ranked.is_none());
+            store.rooms[0]
+                .game
+                .as_mut()
+                .unwrap()
+                .finish(Some(1), "line");
+        }
+        store
+            .command(&receiver, &json!({"action": "handicap", "level": 0}))
+            .unwrap();
+        assert!(store.rooms[0].handicap.is_none());
+        store.leave(&receiver);
+        store
+            .command(&giver, &json!({"action": "handicap", "level": 1}))
+            .unwrap();
+        store.join(&receiver, 0, false).unwrap();
+        assert!(store.rooms[0].handicap.is_none(), "a seat change clears it");
+    }
+
+    #[test]
+    fn undo_needs_consent_and_only_takes_back_the_requesters_last_move() {
+        let (mut store, first, second) = seated_pair();
+        start(&mut store, [&first, &second]);
+        let (black, white) = colors(&store);
+        let undo = json!({"action": "undo"});
+        assert!(
+            store.command(&black, &undo).is_err(),
+            "nothing to take back"
+        );
+        play(&mut store, &black, 112);
+        assert!(store.command(&white, &undo).is_err(), "only the mover asks");
+        store.command(&black, &undo).unwrap();
+        assert!(
+            store
+                .command(&white, &json!({"action": "move", "index": 0}))
+                .is_err()
+        );
+        assert!(
+            store
+                .command(&black, &json!({"action": "undo-reply", "accept": true}))
+                .is_err(),
+            "the requester cannot answer"
+        );
+        store
+            .command(&white, &json!({"action": "undo-reply", "accept": true}))
+            .unwrap();
+        let game = store.rooms[0].game.as_ref().unwrap();
+        assert_eq!((game.board[112], game.moves, game.turn), (0, 0, 1));
+        assert_eq!(game.last, None);
+        assert_eq!(game.undo_left, [2, 3]);
+
+        play(&mut store, &black, 112);
+        store.command(&black, &undo).unwrap();
+        store
+            .command(&white, &json!({"action": "undo-reply", "accept": false}))
+            .unwrap();
+        let game = store.rooms[0].game.as_ref().unwrap();
+        assert_eq!((game.board[112], game.turn), (1, 2));
+        assert!(game.turn_deadline.is_some());
+        assert!(store.command(&black, &undo).is_err(), "refused move stays");
+        play(&mut store, &white, 0);
+        play(&mut store, &black, 1);
+        assert_eq!(store.rooms[0].game.as_ref().unwrap().undo_left, [1, 3]);
+        store.command(&black, &undo).unwrap();
+        store
+            .command(&white, &json!({"action": "undo-reply", "accept": true}))
+            .unwrap();
+        play(&mut store, &black, 2);
+        assert!(store.command(&black, &undo).is_err(), "limit of three");
+    }
+
+    #[test]
+    fn unanswered_undo_expires_and_disconnect_cancels_it() {
+        let (mut store, first, second) = seated_pair();
+        start(&mut store, [&first, &second]);
+        let (black, white) = colors(&store);
+        play(&mut store, &black, 112);
+        store.command(&black, &json!({"action": "undo"})).unwrap();
+        let now = store.now();
+        let game = store.rooms[0].game.as_mut().unwrap();
+        assert!(game.expire_undo(now + UNDO_MS));
+        assert!(game.undo.is_none() && game.board[112] == 1 && game.turn == 2);
+        assert!(game.turn_deadline.is_some());
+
+        play(&mut store, &white, 0);
+        play(&mut store, &black, 1);
+        store.command(&black, &json!({"action": "undo"})).unwrap();
+        let connection = store.players[&white].connection.as_ref().unwrap().0;
+        store.disconnect(&white, connection);
+        let game = store.rooms[0].game.as_ref().unwrap();
+        assert!(game.undo.is_none());
+        assert_eq!(game.undo_left[0], 2, "a cancelled request is refunded");
+        assert!(game.turn_deadline.is_none() && game.turn_remaining.is_some());
     }
 }
