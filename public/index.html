@@ -2,227 +2,329 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#ebe8e0">
-  <meta name="description" content="弈间在线五子棋。和好友实时对弈，也可以观战和交流。">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F6F1E7">
+  <meta name="description" content="弈间在线五子棋。和好友实时对弈，也可以观战、发弹幕，冲击每日排行。">
   <title>弈间 · 在线五子棋</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <header class="site-header">
-    <div class="shell header-inner">
-      <button class="brand" type="button" data-action="lobby" aria-label="弈间大厅">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
-        <span class="brand-word">弈间<small>在线五子棋</small></span>
-      </button>
-      <nav class="main-nav" aria-label="主导航">
-        <button class="nav-link current" type="button" data-action="lobby" aria-current="page"><span data-icon="grid"></span>对弈大厅</button>
-        <button class="nav-link" type="button" data-action="rules"><span data-icon="book"></span>游戏规则</button>
-      </nav>
-      <button class="profile" type="button" data-action="profile" data-network disabled aria-label="登录">
-        <span class="profile-icon" aria-hidden="true"><span data-icon="user"></span><img id="profile-avatar" alt="" referrerpolicy="no-referrer" hidden></span>
-        <span id="profile-name">访客</span>
-        <span id="profile-login-label">登录</span>
-        <span class="profile-edit" data-icon="edit" aria-hidden="true"></span>
-      </button>
-    </div>
-  </header>
-  <div class="champion-strip" id="champion-strip" hidden>
-    <div class="shell champion-inner" role="status" aria-label="排行榜播报">
-      <span class="champion-label"><span data-icon="award" aria-hidden="true"></span>昨日榜首</span>
-      <p id="champion-announcement"></p>
-      <span class="champion-score" id="champion-score"></span>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.2 2.5 3.8 5.5"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 11H5L3 7Z"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Z"/><path d="M4 19a2 2 0 0 1 2-2h13"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/></symbol>
+    <symbol id="i-barrage" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h8"/></symbol>
+    <symbol id="i-door" viewBox="0 0 24 24"><path d="M13 4h6v16h-6M3 12h11m-4-4 4 4-4 4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l1-5L15.5 4.5a2.1 2.1 0 0 1 3 0l1 1a2.1 2.1 0 0 1 0 3L9 19l-5 1Z"/></symbol>
+  </svg>
+
+  <div class="champion" id="champion" hidden>
+    <div class="wrap champion-inner" role="status" aria-label="排行榜播报">
+      <span class="champion-tag"><svg class="icon"><use href="#i-crown"/></svg>昨日榜首</span>
+      <p id="champion-text"></p>
+      <strong class="champion-score" id="champion-score"></strong>
     </div>
   </div>
 
-  <main class="shell" id="main">
-    <div id="lobby">
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <button class="brand" type="button" data-action="lobby" aria-label="弈间大厅">
+        <span class="seal" aria-hidden="true">弈</span>
+        <span class="brand-text"><b>弈间</b><small>GOMOKU · 在线五子棋</small></span>
+      </button>
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-link" id="nav-lobby" type="button" data-action="lobby" aria-current="page"><svg class="icon"><use href="#i-grid"/></svg><span>对弈大厅</span></button>
+        <button class="nav-link" type="button" data-action="ranking" aria-haspopup="dialog"><svg class="icon"><use href="#i-trophy"/></svg><span>今日排行</span></button>
+        <button class="nav-link" type="button" data-action="rules" aria-haspopup="dialog"><svg class="icon"><use href="#i-book"/></svg><span>游戏规则</span></button>
+      </nav>
+      <div class="topbar-end">
+        <span class="online" id="online"><i></i><span>正在连接</span></span>
+        <button class="profile" type="button" data-action="profile" data-network disabled aria-label="登录">
+          <span class="avatar avatar-sm" id="profile-avatar" aria-hidden="true"><svg class="icon"><use href="#i-user"/></svg></span>
+          <span class="profile-name" id="profile-name">访客</span>
+          <span class="profile-login" id="profile-login">登录</span>
+          <svg class="icon profile-edit" id="profile-edit" hidden aria-hidden="true"><use href="#i-edit"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="lobby" class="wrap lobby">
       <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-art" aria-hidden="true">
-          <img src="/chessroom.webp" alt="" width="2172" height="724" fetchpriority="high">
-        </div>
-        <div class="hero-content">
-          <span class="online" id="online"><i></i><span>正在连接</span></span>
-          <h1 id="hero-title">五子棋大厅</h1>
-          <p class="hero-copy">找一张空棋桌和好友对弈，也可以旁观正在进行的棋局。</p>
+        <div class="hero-copy">
+          <span class="eyebrow"><i></i>实时对弈 · 好友邀约 · 观战弹幕</span>
+          <h1 id="hero-title">黑白之间<br><em>自有乾坤</em></h1>
+          <p class="hero-lead">十五道纵横，一局见高下。进入棋室双方准备即开局，每手 30 秒，先连五子者胜。邀请好友对弈，或旁观高手过招。</p>
           <div class="hero-actions">
-            <button class="button hero-primary" type="button" data-action="create" data-network disabled><span data-icon="plus"></span>创建房间</button>
-            <button class="button hero-secondary" type="button" data-action="quick" data-network disabled><span data-icon="zap"></span>快速加入</button>
-            <button class="button hero-ranking" id="ranking-open" type="button" aria-haspopup="dialog"><span data-icon="trophy"></span>排行榜</button>
+            <button class="btn btn-gold btn-xl" type="button" data-action="quick" data-network disabled><svg class="icon"><use href="#i-zap"/></svg>快速开局</button>
+            <button class="btn btn-line btn-xl" type="button" data-action="create" data-network disabled><svg class="icon"><use href="#i-plus"/></svg>创建房间</button>
           </div>
+          <form id="code-form" class="code-form" novalidate>
+            <label for="join-code">凭房号入座</label>
+            <input id="join-code" type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="输入四位房间号" autocomplete="off" aria-describedby="join-error" required>
+            <button class="btn btn-ink" type="submit" data-network disabled>加入</button>
+          </form>
+          <p id="join-error" class="field-error" role="alert" hidden></p>
+          <dl class="hero-stats">
+            <div><dt>位棋手在线</dt><dd id="stat-online">—</dd></div>
+            <div><dt>局正在对弈</dt><dd id="stat-playing">—</dd></div>
+            <div><dt>每日排行重置</dt><dd>00:00</dd></div>
+          </dl>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="hero-stage">
+            <div class="hero-frame"><div class="wood hero-board" id="hero-board"><div class="wood-lines"></div></div></div>
+          </div>
+          <div class="hero-chip" id="hero-chip"><span class="stone stone-b"></span><span><b id="hero-chip-title">棋桌已备好</b><small id="hero-chip-note">邀一位棋友，来一局</small></span></div>
         </div>
       </section>
 
-      <div class="lobby-layout">
-        <section class="rooms-section" aria-labelledby="rooms-title">
-          <div class="section-heading">
-            <h2 id="rooms-title">棋室</h2>
-            <span id="room-count">正在载入</span>
-          </div>
-          <div class="list-tools">
-            <div class="filter" role="group" aria-label="筛选房间">
-              <button type="button" data-action="filter" data-filter="all" aria-pressed="true">全部</button>
-              <button type="button" data-action="filter" data-filter="open" aria-pressed="false">可入座</button>
-              <button type="button" data-action="filter" data-filter="watch" aria-pressed="false">可观战</button>
+      <div class="lobby-grid">
+        <section class="rooms" aria-labelledby="rooms-title">
+          <div class="section-head">
+            <div>
+              <h2 id="rooms-title">棋室</h2>
+              <span class="section-note" id="room-count">正在载入</span>
             </div>
-            <label class="search">
-              <span data-icon="search" aria-hidden="true"></span>
-              <input id="room-search" type="search" placeholder="搜索棋室或房号" aria-label="搜索房间名或房间号" autocomplete="off">
-            </label>
+            <div class="rooms-tools">
+              <div class="segmented" role="group" aria-label="筛选房间">
+                <button type="button" data-action="filter" data-filter="all" aria-pressed="true">全部</button>
+                <button type="button" data-action="filter" data-filter="open" aria-pressed="false">可入座</button>
+                <button type="button" data-action="filter" data-filter="watch" aria-pressed="false">可观战</button>
+              </div>
+              <label class="search">
+                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                <input id="room-search" type="search" placeholder="搜索棋室或房号" aria-label="搜索棋室或房号" autocomplete="off">
+              </label>
+            </div>
           </div>
-          <div class="room-list" id="room-list" aria-busy="true"><p class="empty-state">正在载入房间…</p></div>
+          <div class="room-list" id="room-list" aria-busy="true"><p class="empty">正在载入棋室…</p></div>
         </section>
 
-        <aside class="lobby-side" aria-label="加入棋室与玩法">
-          <section class="join-panel" aria-labelledby="join-title">
-            <div class="side-heading"><span class="side-emblem" data-icon="door" aria-hidden="true"></span><h2 id="join-title">凭房间号入座</h2></div>
-            <form id="room-code-form" class="code-form" novalidate>
-              <input id="join-code" type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="输入四位房间号" aria-label="四位房间号" aria-describedby="join-error" autocomplete="off" required>
-              <button type="submit" class="button button-primary" data-network disabled>加入</button>
-              <p id="join-error" class="field-error" role="alert" hidden></p>
-            </form>
+        <aside class="lobby-side" aria-label="排行与玩法">
+          <section class="card rank-card" aria-labelledby="side-rank-title">
+            <div class="rank-card-head">
+              <svg class="icon" aria-hidden="true"><use href="#i-trophy"/></svg>
+              <h2 id="side-rank-title">今日排行</h2>
+              <span>胜 +1 · 负 −1</span>
+            </div>
+            <ol class="rank-list" id="side-rank-list"><li class="rank-empty">正在读取排行榜…</li></ol>
+            <div class="rank-card-foot">
+              <span id="side-rank-own">登录后对局计入排行</span>
+              <button class="text-link" type="button" data-action="ranking">完整榜单<svg class="icon"><use href="#i-next"/></svg></button>
+            </div>
           </section>
 
-          <section class="guide" aria-labelledby="guide-title">
-            <div class="side-heading"><span class="side-emblem" data-icon="book" aria-hidden="true"></span><h2 id="guide-title">怎么开局</h2></div>
-            <ol class="guide-steps">
-              <li><span class="step-index" aria-hidden="true">1</span><div><h3>入座</h3><p>选一间棋室，或分享房间链接邀请好友。</p></div></li>
-              <li><span class="step-index" aria-hidden="true">2</span><div><h3>准备</h3><p>双方点击「准备」后自动开局。</p></div></li>
-              <li><span class="step-index" aria-hidden="true">3</span><div><h3>落子</h3><p>黑棋先行，每手 30 秒，先连成五子获胜。</p></div></li>
+          <section class="card guide" aria-labelledby="guide-title">
+            <h2 id="guide-title">三步开局</h2>
+            <ol>
+              <li><span class="guide-no" aria-hidden="true">壹</span><span><b>入座</b>选一间棋室，或把邀请链接发给好友</span></li>
+              <li><span class="guide-no" aria-hidden="true">贰</span><span><b>准备</b>双方点击「准备」，系统抽签分黑白</span></li>
+              <li><span class="guide-no" aria-hidden="true">叁</span><span><b>落子</b>黑棋先行，每手 30 秒，先连五子者胜</span></li>
             </ol>
-            <button class="link-button guide-link" type="button" data-action="rules">完整游戏规则<span data-icon="arrow-right"></span></button>
+            <button class="text-link" type="button" data-action="rules">完整游戏规则<svg class="icon"><use href="#i-next"/></svg></button>
           </section>
         </aside>
       </div>
     </div>
 
-    <section id="room-view" class="room-view" aria-labelledby="room-title" hidden>
-      <div class="room-topline">
-        <button type="button" class="link-button back-link" data-action="lobby"><span data-icon="arrow-left"></span>返回大厅</button>
-        <div class="room-labels">
-          <span class="watch-label" id="watch-label" hidden><span data-icon="eye"></span>观战中</span>
-          <span id="room-code" class="room-code"></span>
+    <section id="room-view" class="room" aria-labelledby="room-title" hidden>
+      <div class="room-bar">
+        <div class="wrap room-bar-inner">
+          <button class="btn btn-quiet" type="button" data-action="lobby"><svg class="icon"><use href="#i-back"/></svg>大厅</button>
+          <div class="room-ident">
+            <h1 id="room-title" tabindex="-1"></h1>
+            <span class="room-code" id="room-code"></span>
+            <span class="room-facts">自由五子棋 · 15 × 15 · 每手 30 秒</span>
+          </div>
+          <div class="room-bar-end">
+            <span class="watch-badge" id="watch-badge" hidden><svg class="icon"><use href="#i-eye"/></svg>观战中</span>
+            <span class="room-meta" id="spectators"><svg class="icon"><use href="#i-eye"/></svg><span>0 人观战</span></span>
+            <button class="btn btn-quiet" id="watch-invite" type="button" data-action="watch-invite"><svg class="icon"><use href="#i-eye"/></svg>邀请观战</button>
+            <button class="btn btn-gold-flat" id="invite" type="button" data-action="invite"><svg class="icon"><use href="#i-link"/></svg><span>复制邀请</span></button>
+          </div>
         </div>
       </div>
-      <div class="room-heading">
-        <div>
-          <h1 id="room-title" tabindex="-1"></h1>
-          <ul class="room-facts" aria-label="对局规格"><li>自由五子棋</li><li>15 × 15</li><li>每手 30 秒</li></ul>
-        </div>
-        <button type="button" class="button button-outline" id="room-invite" data-action="invite"><span data-icon="link"></span><span>复制邀请</span></button>
-      </div>
 
-      <div class="game-layout">
-        <div class="match-stage">
-          <div class="seat" id="upper-seat">
-            <div class="seat-info"></div>
-            <div class="seat-controls"><span class="seat-state"></span><span class="seat-clock-slot"></span></div>
-          </div>
-
-          <div class="board-card">
-            <div class="board-toolbar" id="board-toolbar" tabindex="-1">
-              <div class="board-status">
-                <span class="spectator-count" id="spectator-count"><span data-icon="eye" aria-hidden="true"></span><span>0 人观战</span></span>
-                <span id="board-state" class="game-chip"><i></i><span>等待开局</span></span>
-              </div>
-              <div class="board-tools">
-                <span id="move-count">已落 0 子</span>
-                <button type="button" class="link-button" data-action="barrage" id="barrage-toggle" aria-pressed="true" title="显示棋盘弹幕"><span data-icon="barrage"></span>弹幕</button>
-                <button type="button" class="link-button" id="guidance-jump" popovertarget="room-chat"><span data-icon="message"></span><span>对话</span></button>
-              </div>
-            </div>
-            <div class="wood-board">
-              <div class="board-axis axis-top" id="columns" aria-hidden="true"></div>
-              <div class="board-axis axis-left" id="rows" aria-hidden="true"></div>
-              <div id="board" class="board" role="group" aria-label="五子棋棋盘，使用方向键移动，按回车落子"></div>
-              <div id="barrage" class="barrage" aria-hidden="true"></div>
-            </div>
-          </div>
-
-          <div class="seat" id="lower-seat">
-            <div class="seat-info"></div>
-            <div class="seat-controls">
+      <div class="wrap room-grid">
+        <section class="seats" aria-label="对阵双方">
+          <article class="seat" id="upper-seat">
+            <div class="seat-head">
+              <span class="avatar avatar-lg seat-avatar"></span>
+              <div class="seat-id"><span class="seat-name"></span><span class="seat-color"></span></div>
               <span class="seat-state"></span>
-              <span class="seat-clock-slot"><span id="turn-clock" class="turn-clock" role="timer" aria-label="落子倒计时" hidden><span data-icon="clock" aria-hidden="true"></span><span id="turn-seconds"></span></span></span>
-              <button type="button" class="button button-primary ready-button" id="ready-button" data-action="ready" data-network><span data-icon="check"></span><span>准备</span></button>
-              <button type="button" class="button button-outline ready-button" id="take-seat" data-action="take-seat" data-network hidden><span data-icon="door"></span>加入对弈</button>
+            </div>
+            <div class="seat-clock" hidden>
+              <div class="clock-row"><span class="clock-time" role="timer" aria-label="落子倒计时"></span><span class="clock-note">剩余时间</span></div>
+              <div class="clock-bar"><i></i></div>
+            </div>
+          </article>
+          <div class="versus" aria-hidden="true"><i></i>对 弈<i></i></div>
+          <article class="seat" id="lower-seat">
+            <div class="seat-head">
+              <span class="avatar avatar-lg seat-avatar"></span>
+              <div class="seat-id"><span class="seat-name"></span><span class="seat-color"></span></div>
+              <span class="seat-state"></span>
+            </div>
+            <div class="seat-clock" hidden>
+              <div class="clock-row"><span class="clock-time" role="timer" aria-label="落子倒计时"></span><span class="clock-note">剩余时间</span></div>
+              <div class="clock-bar"><i></i></div>
+            </div>
+            <div class="seat-actions">
+              <button class="btn btn-gold btn-block" id="ready" type="button" data-action="ready" data-network><svg class="icon"><use href="#i-check"/></svg><span>准备</span></button>
+              <button class="btn btn-line btn-block" id="take-seat" type="button" data-action="take-seat" data-network hidden><svg class="icon"><use href="#i-door"/></svg>加入对弈</button>
+            </div>
+          </article>
+          <dl class="room-stats">
+            <div><dt>手数</dt><dd id="stat-moves">—</dd></div>
+            <div><dt>在场观众</dt><dd id="stat-spectators">0</dd></div>
+          </dl>
+        </section>
+
+        <section class="table" aria-label="棋盘">
+          <div class="table-bar">
+            <span class="chip" id="board-state"><i></i><span>等待开局</span></span>
+            <span class="table-note" id="move-count">已落 0 子</span>
+            <button class="pill-toggle" id="barrage-toggle" type="button" data-action="barrage" aria-pressed="true"><svg class="icon"><use href="#i-barrage"/></svg>弹幕</button>
+            <button class="pill-toggle chat-jump" id="chat-jump" type="button" data-action="chat"><svg class="icon"><use href="#i-message"/></svg><span>对话</span></button>
+          </div>
+          <div class="board-frame">
+            <div class="wood board-wood">
+              <div class="wood-lines"></div>
+              <div class="coords coords-top" id="coords-top" aria-hidden="true"></div>
+              <div class="coords coords-left" id="coords-left" aria-hidden="true"></div>
+              <div class="board" id="board" role="group" aria-label="五子棋棋盘，使用方向键移动，按回车落子"></div>
+              <div class="barrage" id="barrage" aria-hidden="true"></div>
             </div>
           </div>
-        </div>
-        <div class="match-status" id="match-status" role="status"></div>
+          <div class="match-status" id="match-status" role="status"></div>
+        </section>
 
-        <aside id="room-chat" class="match-side" popover aria-labelledby="guidance-title">
-          <section class="game-panel guidance-panel" aria-labelledby="guidance-title">
-            <div class="guidance-heading">
-              <h2 id="guidance-title" tabindex="-1"><span data-icon="message" aria-hidden="true"></span>棋室对话</h2>
-              <div class="guidance-actions">
-                <button type="button" class="link-button" id="watch-invite" data-action="watch-invite">邀请观战</button>
-                <button type="button" class="icon-button" popovertarget="room-chat" popovertargetaction="hide" aria-label="关闭对话" data-icon="close"></button>
-              </div>
-            </div>
-            <p class="guidance-empty" id="guidance-empty">棋手和观众都可以在这里发消息。</p>
-            <div class="guidance-log" id="guidance-log" role="log" aria-labelledby="guidance-title" tabindex="0" hidden></div>
-            <form class="guidance-form" id="guidance-form">
-              <input id="guidance-input" type="text" maxlength="160" placeholder="给同房棋友发消息" aria-label="输入棋室消息" autocomplete="off" required>
-              <button type="submit" class="button button-primary" data-network>发送</button>
-            </form>
-          </section>
-
+        <aside class="card chat" id="chat" aria-labelledby="chat-title">
+          <div class="chat-head">
+            <svg class="icon" aria-hidden="true"><use href="#i-message"/></svg>
+            <h2 id="chat-title">棋室对话</h2>
+            <span id="chat-count">保留最近 40 条</span>
+          </div>
+          <p class="chat-empty" id="chat-empty">棋手和观众都可以在这里发消息，新消息会以弹幕飘过棋盘。</p>
+          <div class="chat-log" id="chat-log" role="log" aria-labelledby="chat-title" tabindex="0" hidden></div>
+          <form class="chat-form" id="chat-form">
+            <input id="chat-input" type="text" maxlength="160" placeholder="给同房棋友发消息" aria-label="输入棋室消息" autocomplete="off" required>
+            <button class="btn btn-gold-flat" type="submit" data-network>发送</button>
+          </form>
         </aside>
       </div>
     </section>
   </main>
 
-  <footer class="shell footer"><span>弈间在线五子棋</span><button type="button" class="link-button" data-action="rules">游戏规则</button></footer>
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span class="footer-brand">弈间 · 在线五子棋</span>
+      <button class="text-link" type="button" data-action="rules">游戏规则</button>
+      <button class="text-link" type="button" data-action="ranking">今日排行</button>
+    </div>
+  </footer>
 
-  <dialog id="dialog" aria-labelledby="dialog-title">
-    <div class="dialog-inner">
-      <div class="dialog-heading"><h2 id="dialog-title"></h2><button class="icon-button" type="button" data-action="close" aria-label="关闭" data-icon="close"></button></div>
-      <div id="dialog-content"></div>
-      <div id="account-summary" class="account-summary" hidden>
-        <span id="account-name" hidden></span>
-        <button id="account-login" class="link-button" type="button" data-action="sign-in">登录账号</button>
-        <button id="account-logout" class="link-button" type="button" data-action="sign-out" hidden>退出登录</button>
+  <dialog id="dialog" class="modal" aria-labelledby="dialog-title">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 id="dialog-title"></h2>
+        <button class="icon-btn" type="button" data-action="close" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
       </div>
-      <form id="dialog-form">
-        <div id="dialog-field"><label for="dialog-input"></label><input id="dialog-input" name="value" type="text" autocomplete="off"></div>
+      <div class="modal-copy" id="dialog-copy"></div>
+      <div class="account" id="account" hidden>
+        <span id="account-name" hidden></span>
+        <button class="text-link" id="account-login" type="button" data-action="sign-in">登录智算账号</button>
+        <button class="text-link" id="account-logout" type="button" data-action="sign-out" hidden>退出登录</button>
+      </div>
+      <form id="dialog-form" class="modal-form">
+        <div class="field" id="dialog-field"><label for="dialog-input"></label><input id="dialog-input" name="value" type="text" autocomplete="off"></div>
         <p id="dialog-error" class="field-error" role="alert" hidden></p>
-        <div class="dialog-actions"><button class="button button-outline" type="button" data-action="close">取消</button><button class="button button-primary" id="dialog-submit" type="submit"></button></div>
+        <div class="modal-actions"><button class="btn btn-line" type="button" data-action="close">取消</button><button class="btn btn-gold" id="dialog-submit" type="submit"></button></div>
       </form>
     </div>
   </dialog>
-  <dialog id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-copy">
-    <div class="dialog-inner">
-      <div class="dialog-heading"><h2 id="auth-title">使用智算账号登录</h2><button class="icon-button" type="button" data-action="close-auth" aria-label="关闭" data-icon="close"></button></div>
-      <p id="auth-copy"></p>
-      <form id="auth-form" method="post">
-        <div id="auth-credentials" class="auth-fields">
-          <div><label for="auth-email">邮箱</label><input id="auth-email" name="email" type="email" autocomplete="username" required></div>
-          <div><label for="auth-password">密码</label><input id="auth-password" name="password" type="password" autocomplete="current-password" required></div>
+
+  <dialog id="auth-dialog" class="modal" aria-labelledby="auth-title" aria-describedby="auth-copy">
+    <div class="modal-body">
+      <div class="modal-head modal-head-brand">
+        <span class="seal seal-lg" aria-hidden="true">弈</span>
+        <div><h2 id="auth-title">使用智算账号登录</h2><p id="auth-copy">登录后对局计入每日排行</p></div>
+        <button class="icon-btn" type="button" data-action="close-auth" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+      <form id="auth-form" class="modal-form" method="post">
+        <div id="auth-credentials" class="fields">
+          <div class="field"><label for="auth-email">邮箱</label><input id="auth-email" name="email" type="email" autocomplete="username" placeholder="name@example.com" required></div>
+          <div class="field"><label for="auth-password">密码</label><input id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="输入密码" required></div>
         </div>
-        <div id="auth-totp" class="auth-fields" hidden><div><label for="auth-code">动态验证码</label><input id="auth-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required disabled></div></div>
+        <div id="auth-totp" class="fields" hidden>
+          <div class="field"><label for="auth-code">动态验证码</label><input id="auth-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6 位数字" required disabled></div>
+        </div>
         <p id="auth-error" class="field-error" role="alert" hidden></p>
-        <div class="dialog-actions"><button id="auth-back" class="button button-outline" type="button" data-action="auth-back" hidden>返回登录</button><button id="auth-submit" class="button button-primary" type="submit">登录</button></div>
+        <div class="modal-actions modal-actions-stack">
+          <button id="auth-submit" class="btn btn-gold btn-lg btn-block" type="submit">登录</button>
+          <button id="auth-back" class="btn btn-line btn-block" type="button" data-action="auth-back" hidden>返回登录</button>
+        </div>
       </form>
-      <div id="auth-footer" class="auth-footer"><a href="https://zhisuanapi.cn/register" target="_blank" rel="noopener noreferrer">没有账号？去智算注册</a><button class="link-button" type="button" data-action="guest-profile">以访客身份改昵称</button></div>
+      <div id="auth-footer" class="modal-foot"><a href="https://zhisuanapi.cn/register" target="_blank" rel="noopener noreferrer">没有账号？去智算注册</a><button class="text-link text-link-muted" type="button" data-action="guest-profile">以访客身份改昵称</button></div>
     </div>
   </dialog>
-  <dialog id="ranking-dialog" aria-labelledby="ranking-title">
-    <div class="dialog-inner">
-      <div class="dialog-heading"><h2 id="ranking-title" tabindex="-1">今日排行榜</h2><button class="icon-button" id="ranking-close" type="button" aria-label="关闭排行榜" data-icon="close"></button></div>
-      <p class="ranking-rules"><span>胜 +1 · 负 −1 · 和棋 0</span><span>北京时间 00:00 重置</span></p>
-      <p id="ranking-status" class="ranking-status" role="status">正在读取排行榜…</p>
-      <button class="button button-outline" id="ranking-retry" type="button" hidden>重试</button>
-      <div id="ranking-table" class="ranking-table" hidden>
+
+  <dialog id="ranking-dialog" class="modal modal-rank" aria-labelledby="ranking-title">
+    <div class="modal-body">
+      <div class="rank-hero">
+        <div class="modal-head">
+          <h2 id="ranking-title" tabindex="-1">今日排行榜</h2>
+          <span class="rank-reset">北京时间 00:00 重置 · 胜 +1 负 −1 和 0</span>
+          <button class="icon-btn" type="button" data-action="close-ranking" aria-label="关闭排行榜"><svg class="icon"><use href="#i-close"/></svg></button>
+        </div>
+        <div class="podium" id="podium" hidden></div>
+      </div>
+      <p id="ranking-status" class="rank-status" role="status">正在读取排行榜…</p>
+      <button class="btn btn-line rank-retry" id="ranking-retry" type="button" hidden>重试</button>
+      <div class="rank-table" id="ranking-table" hidden>
         <table aria-label="今日棋手积分">
           <thead><tr><th scope="col">排名</th><th scope="col">棋手</th><th scope="col">胜</th><th scope="col">负</th><th scope="col">积分</th></tr></thead>
           <tbody id="ranking-rows"></tbody>
         </table>
       </div>
-      <p id="ranking-own" class="ranking-own" hidden></p>
+      <p class="rank-own" id="ranking-own" hidden></p>
     </div>
   </dialog>
-  <div id="toast" role="status" class="toast" hidden></div>
+
+  <dialog id="result-dialog" class="modal modal-result" aria-labelledby="result-title" aria-describedby="result-copy">
+    <div class="modal-body">
+      <button class="icon-btn result-close" type="button" data-action="close-result" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+      <span class="result-seal" id="result-seal" aria-hidden="true">胜</span>
+      <h2 id="result-title"></h2>
+      <p id="result-copy"></p>
+      <dl class="result-stats">
+        <div><dt>总手数</dt><dd id="result-moves">0</dd></div>
+        <div><dt>终局方式</dt><dd id="result-reason">五连</dd></div>
+      </dl>
+      <div class="result-actions">
+        <button class="btn btn-gold btn-lg" id="result-again" type="button" data-action="result-again" data-network><b>再来一局</b><small id="result-again-note">下局交换黑白</small></button>
+        <button class="btn btn-line btn-lg" type="button" data-action="close-result">查看棋盘</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

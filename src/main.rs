@@ -495,10 +495,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             }),
         )
-        .route(
-            "/chessroom.webp",
-            get(|| async { asset("image/webp", include_bytes!("../public/chessroom.webp")) }),
-        )
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .route("/healthz", get(|| async { Json(json!({"ok": true})) }))
         .route("/api/session", post(session))
