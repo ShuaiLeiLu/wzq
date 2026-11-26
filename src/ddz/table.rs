@@ -493,25 +493,25 @@ impl Table {
             return;
         }
         let landlord = self.landlord.expect("landlord chosen");
-        let opponents: Vec<usize> = (0..3)
-            .filter(|&s| s != seat && (s == landlord || seat == landlord))
-            .collect();
         let previous = self.to_beat().copied();
-        let partner_played = self
-            .last
-            .as_ref()
-            .is_some_and(|play| play.seat != seat && !opponents.contains(&play.seat));
-        let after = next(seat);
+        let mut unseen = bot::deck_counts();
+        let own = cards::counts(&self.hands[seat]);
+        let played = cards::counts(&self.played_cards);
+        for (rank, count) in unseen.iter_mut().enumerate() {
+            *count -= own[rank] + played[rank];
+        }
+        let view_of = |other: usize| bot::Seat {
+            cards: self.hands[other].len(),
+            partner: other != landlord && seat != landlord,
+        };
+        let (after, before) = (next(seat), next(next(seat)));
         let choice = bot::choose(&bot::View {
             hand: &self.hands[seat],
             previous: previous.as_ref(),
-            partner_played,
-            fewest_opponent_cards: opponents
-                .iter()
-                .map(|&s| self.hands[s].len())
-                .min()
-                .unwrap_or(20),
-            next_opponent_cards: opponents.contains(&after).then(|| self.hands[after].len()),
+            unseen,
+            next: view_of(after),
+            before: view_of(before),
+            played_by_next: self.last.as_ref().is_some_and(|play| play.seat == after),
         });
         let result = match choice {
             Some(chosen) => self.play(seat, &chosen, now),
