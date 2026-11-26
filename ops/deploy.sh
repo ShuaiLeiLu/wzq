@@ -79,6 +79,7 @@ start() {
     --network host \
     "${env_args[@]}" \
     --env HOST=127.0.0.1 --env "PORT=$port" \
+    --mount type=volume,source=wzq-history-outbox,target=/var/lib/wzq/history \
     --read-only --tmpfs /tmp \
     --cap-drop ALL --security-opt no-new-privileges \
     --memory 192m --pids-limit 256 \

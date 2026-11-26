@@ -62,6 +62,14 @@ Rust 后端通过 HTTPS 调用 Sub2API 的 `/api/v1/auth/login`、`/api/v1/auth/
 
 已有排行榜数据库可从 `ops/leaderboard` 目录执行 `docker compose exec -T db psql -U wzq_owner -d wzq -v ON_ERROR_STOP=1 < champion.sql` 安装昨日榜首查询，执行 `docker compose exec -T db psql -U wzq_owner -d wzq -v ON_ERROR_STOP=1 < ddz.sql` 安装斗地主积分榜。两个脚本都可以重复执行。新数据库由 Compose 初始化，迁移会通知 PostgREST 重载接口。斗地主积分榜未安装时，游戏照常进行，只是不显示和不记录斗地主积分。
 
+## 对局记录
+
+大厅和房间顶部的「对局记录」支持按游戏、四位房号和北京时间的开局日期查询。每局使用独立编号。详情按先后顺序展示落子或出牌、托管与结算。斗地主每轮首次因牌型不合法或压不过上家被拒绝时，也会记下原因。公开记录只显示已公开的牌。
+
+旧数据库需要从 `ops/leaderboard` 目录运行 `docker compose exec -T db psql -U wzq_owner -d wzq -v ON_ERROR_STOP=1 < history.sql`。迁移会导入旧计分表已有的编号和结算日期。旧版未保存的出牌、棋步和未计分对局无法回填。新建 Compose 数据库会自动执行迁移。
+
+Rust 后端先将事件写入 `WZQ_HISTORY_DIR`，再通过 PostgREST 幂等写入 PostgreSQL。容器使用挂载到 `/var/lib/wzq/history` 的持久卷。已有 Docker 部署应同步更新服务器上安装的 `ops/deploy.sh`，以便切换发布版本时复用同一个待写入卷。游戏进程重启前尚未结束的对局会显示为已中止，已经记录的动作仍可查询。
+
 ## 自动发布
 
 线上棋室使用 [https://wzq.zhisuanapi.cn](https://wzq.zhisuanapi.cn)。

@@ -10,6 +10,8 @@ use rand::{Rng, seq::SliceRandom};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::history::Journal;
+
 use super::{
     bot,
     cards::{self, Card, Combo, DECK, Kind},
@@ -93,6 +95,8 @@ pub enum Event {
 }
 
 pub struct Table {
+    pub(crate) journal: Journal,
+    rejected_this_turn: bool,
     pub phase: Phase,
     hands: [Vec<Card>; 3],
     bottom: Vec<Card>,
@@ -123,6 +127,8 @@ fn next(seat: usize) -> usize {
 impl Table {
     pub fn new(now: u64) -> Self {
         let mut table = Self {
+            journal: Journal::default(),
+            rejected_this_turn: false,
             phase: Phase::Bidding,
             hands: Default::default(),
             bottom: Vec::new(),
@@ -180,6 +186,7 @@ impl Table {
     }
 
     fn start_turn(&mut self, seat: usize, now: u64, limit: u64) {
+        self.rejected_this_turn = false;
         self.turn = seat;
         self.turn_started = now;
         self.deadline = now + limit;
@@ -209,6 +216,13 @@ impl Table {
         if self.turn != seat {
             return Err("还没轮到你叫地主。");
         }
+        let label = match (self.robbing(), yes) {
+            (false, true) => "叫地主",
+            (false, false) => "不叫",
+            (true, true) => "抢地主",
+            (true, false) => "不抢",
+        };
+        self.journal.event(Some(seat), label, Value::Null);
         let bidding = &mut self.bidding;
         bidding.queue.pop_front();
         match bidding.caller {
@@ -224,6 +238,7 @@ impl Table {
                 bidding.declined[seat] = true;
                 self.acts[seat] = Some(Act::say("不叫"));
                 if bidding.queue.is_empty() {
+                    self.journal.event(None, "重新发牌", Value::Null);
                     self.events.push(Event::Redeal);
                     self.deal(now);
                     return Ok(());
@@ -268,6 +283,8 @@ impl Table {
     }
 
     fn crown(&mut self, landlord: usize, now: u64) {
+        self.journal
+            .event(Some(landlord), "成为地主", json!({"cards":self.bottom}));
         self.landlord = Some(landlord);
         let bottom = self.bottom.clone();
         self.hands[landlord].extend(bottom);
@@ -286,6 +303,8 @@ impl Table {
         if self.doubled[seat].is_some() {
             return Err("你已经选择过了。");
         }
+        self.journal
+            .event(Some(seat), if yes { "加倍" } else { "不加倍" }, Value::Null);
         self.doubled[seat] = Some(yes);
         self.acts[seat] = Some(Act::say(if yes { "加倍" } else { "不加倍" }));
         if self.doubled.iter().all(Option::is_some) {
@@ -304,6 +323,7 @@ impl Table {
         if self.landlord != Some(seat) || self.shown || !before_first_play {
             return Err("只有地主能在出第一手前明牌。");
         }
+        self.journal.event(Some(seat), "明牌", Value::Null);
         self.shown = true;
         Ok(())
     }
@@ -332,13 +352,26 @@ impl Table {
             return Err("请选择自己手里的牌。");
         }
         let previous = self.to_beat();
-        let combo = cards::parse(&sorted, previous).ok_or(if previous.is_some() {
-            "所选的牌压不过上家。"
-        } else {
-            "所选的牌不符合出牌规则。"
-        })?;
+        let Some(combo) = cards::parse(&sorted, previous) else {
+            let reason = if previous.is_some() {
+                "所选的牌压不过上家。"
+            } else {
+                "所选的牌不符合出牌规则。"
+            };
+            if !self.rejected_this_turn {
+                self.journal
+                    .event(Some(seat), "出牌未通过", json!({"message":reason}));
+                self.rejected_this_turn = true;
+            }
+            return Err(reason);
+        };
         self.hands[seat].retain(|card| !sorted.contains(card));
         cards::sort_hand(&mut sorted);
+        self.journal.event(
+            Some(seat),
+            combo.kind.label(),
+            json!({"cards":sorted,"left":self.hands[seat].len()}),
+        );
         self.played_cards.extend(&sorted);
         self.played[seat] += 1;
         if combo.is_bomb() {
@@ -367,6 +400,7 @@ impl Table {
         if self.to_beat().is_none() {
             return Err("这一轮由你先出，不能不出。");
         }
+        self.journal.event(Some(seat), "不出", Value::Null);
         self.acts[seat] = Some(Act::say("不出"));
         self.advance(now);
         Ok(())
@@ -422,12 +456,20 @@ impl Table {
         let outcome = self.outcome.as_mut().expect("just set");
         outcome.multiplier = common;
         outcome.deltas = deltas;
+        self.journal.finish(if landlord_won {"地主获胜"} else {"农民获胜"}, json!({"winnerSeat":winner,"landlord":landlord,"counts": self.hands.each_ref().map(Vec::len), "multiplier":common,"deltas":deltas,"spring":spring}));
         self.events.push(Event::Finished);
     }
 
     pub fn set_trustee(&mut self, seat: usize, on: bool) -> Result<(), Failure> {
         if !self.playing() {
             return Err("对局已结束。");
+        }
+        if self.trustee[seat] != on {
+            self.journal.event(
+                Some(seat),
+                if on { "开启托管" } else { "取消托管" },
+                Value::Null,
+            );
         }
         self.trustee[seat] = on;
         Ok(())
@@ -476,7 +518,8 @@ impl Table {
                 if !due && !timed_out {
                     return false;
                 }
-                if timed_out && !bots[seat] {
+                if timed_out && !bots[seat] && !self.trustee[seat] {
+                    self.journal.event(Some(seat), "超时托管", Value::Null);
                     self.trustee[seat] = true;
                 }
                 self.act_for(seat, bots[seat], now);

@@ -1,4 +1,5 @@
 import { createDdz } from './ddz.js';
+import { openHistory } from './history.js';
 
 const $ = selector => document.querySelector(selector);
 const PATHS = { hub: '/', gomoku: '/wzq', ddz: '/ddz' };
@@ -756,7 +757,7 @@ function renderResult(room) {
 /* ---------- Render ---------- */
 
 function anyDialogOpen() {
-  return [el.dialog, el.auth, el.ranking, el.result, el.undoDialog, ddz.resultDialog].some(node => node.open);
+  return [el.dialog, el.auth, el.ranking, el.result, el.undoDialog, ddz.resultDialog, $('#history-dialog')].some(node => node.open);
 }
 
 function switchView(next, push = true) {
@@ -1143,6 +1144,9 @@ document.addEventListener('click', event => {
       break;
     case 'create':
       openDialog('create');
+      break;
+    case 'history':
+      openHistory(view, state?.room?.id || state?.table?.id);
       break;
     case 'ranking':
       openRanking(button.dataset.game);

@@ -10,6 +10,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin wzq
+ENV WZQ_HISTORY_DIR=/var/lib/wzq/history
+RUN install -d -o wzq -g "$(id -gn wzq)" /var/lib/wzq/history
+VOLUME ["/var/lib/wzq/history"]
 COPY --from=build /app/target/release/wzq-server /usr/local/bin/wzq-server
 ENV HOST=0.0.0.0 PORT=3000
 EXPOSE 3000

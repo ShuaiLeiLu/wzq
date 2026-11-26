@@ -13,6 +13,7 @@ services:
       - database:/var/lib/postgresql/data
       - ./ops/leaderboard/init.sh:/docker-entrypoint-initdb.d/010-leaderboard.sh:ro
       - ./ops/leaderboard/champion.sql:/docker-entrypoint-initdb.d/020-champion.sql:ro
+      - ./ops/leaderboard/history.sql:/docker-entrypoint-initdb.d/040-history.sql:ro
       - ./ops/leaderboard/ddz.sql:/docker-entrypoint-initdb.d/030-ddz.sql:ro
       - ./ops/leaderboard/schema.sql:/opt/wzq/schema.sql:ro
     healthcheck:
@@ -40,6 +41,8 @@ services:
   app:
     build: .
     restart: unless-stopped
+    volumes:
+      - history-outbox:/var/lib/wzq/history
     network_mode: service:postgrest
     depends_on:
       - postgrest
@@ -50,4 +53,5 @@ services:
       WZQ_POSTGREST_TOKEN: ${WZQ_POSTGREST_TOKEN:?run scripts/gen-local-env.sh}
 
 volumes:
+  history-outbox:
   database:

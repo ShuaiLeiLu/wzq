@@ -149,6 +149,9 @@ impl DdzRoom {
         if self.humans().next().is_some() {
             return;
         }
+        if let Some(table) = &mut self.table {
+            table.journal.abandon();
+        }
         self.table = None;
         self.ranked = None;
         self.seats = [None, None, None];
@@ -267,17 +270,35 @@ impl Store {
         });
         // Deals with bots stay off the daily ranking.
         let all_human = room.humans().count() == 3;
+        let match_id = random_token(16);
         let ranked = (all_human && players.iter().any(Option::is_some)).then(|| DdzMatch {
-            id: random_token(16),
+            id: match_id.clone(),
             players,
         });
+        let mode = if room.practice {
+            "人机练习"
+        } else if all_human {
+            "真人局"
+        } else {
+            "人机混合局"
+        };
+        let journal = crate::history::Journal::start(
+            self.archive.as_ref(),
+            &match_id,
+            "ddz",
+            &room.id,
+            self.seat_names(index).to_vec(),
+            mode,
+        );
         let humans: Vec<String> = room.humans().cloned().collect();
         let now = self.now();
         for key in &humans {
             self.players.get_mut(key).expect("seated player").ready = false;
         }
         let room = &mut self.tables[index];
-        room.table = Some(Table::new(now));
+        let mut table = Table::new(now);
+        table.journal = journal;
+        room.table = Some(table);
         room.ranked = ranked;
     }
 
@@ -384,6 +405,7 @@ impl Store {
             if room.playing() {
                 room.seats[seat] = Some(Occupant::Departed(name.clone()));
                 if let Some(table) = &mut room.table {
+                    table.journal.event(Some(seat), "离桌托管", Value::Null);
                     table.trustee[seat] = true;
                 }
                 room.announce(format!("{name} 离开了牌桌，本局由托管代打。"));

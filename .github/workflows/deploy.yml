@@ -27,6 +27,7 @@ jobs:
           node --check public/app.js
           node --check public/ddz.js
           node --check public/ddz-fx.js
+          node --check public/history.js
           rustup toolchain install stable --profile minimal --component rustfmt
           cargo +stable fmt --check
           cargo +stable test --locked

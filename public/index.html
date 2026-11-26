@@ -60,6 +60,7 @@
         <button class="nav-link" id="nav-lobby" type="button" data-action="game" data-game="gomoku"><svg class="icon"><use href="#i-grid"/></svg><span>五子棋</span></button>
         <button class="nav-link" id="nav-ddz" type="button" data-action="game" data-game="ddz"><svg class="icon"><use href="#i-cards"/></svg><span>斗地主</span></button>
         <button class="nav-link" type="button" data-action="ranking" aria-haspopup="dialog"><svg class="icon"><use href="#i-trophy"/></svg><span>今日排行</span></button>
+        <button class="nav-link" type="button" data-action="history" aria-haspopup="dialog">对局记录</button>
         <button class="nav-link" type="button" data-action="rules" aria-haspopup="dialog"><svg class="icon"><use href="#i-book"/></svg><span>游戏规则</span></button>
       </nav>
       <div class="topbar-end">
@@ -540,6 +541,26 @@
         </div>
       </form>
       <div id="auth-footer" class="modal-foot"><a href="https://zhisuanapi.cn/register" target="_blank" rel="noopener noreferrer">没有账号？去智算注册</a><button class="text-link text-link-muted" type="button" data-action="guest-profile">以访客身份改昵称</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="history-dialog" class="modal modal-rank" aria-labelledby="history-title">
+    <div class="modal-body">
+      <div class="modal-head"><h2 id="history-title">对局记录</h2><button class="icon-btn" type="button" id="history-close" aria-label="关闭对局记录"><svg class="icon"><use href="#i-close"/></svg></button></div>
+      <form id="history-filter" class="history-filter">
+        <label>游戏<select name="game"><option value="">全部游戏</option><option value="gomoku">五子棋</option><option value="ddz">斗地主</option></select></label>
+        <label>房号<input name="room" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="全部房间"></label>
+        <label>日期（北京时间）<input type="date" name="day"></label>
+        <button class="btn btn-gold" type="submit">查询</button>
+      </form>
+      <p id="history-status" class="rank-status" role="status"></p>
+      <div id="history-content"></div>
+      <div class="history-controls">
+        <button id="history-back" class="btn btn-line" type="button" hidden>返回列表</button>
+        <button id="history-prev" class="btn btn-line" type="button" hidden>上一页</button>
+        <button id="history-next" class="btn btn-line" type="button" hidden>下一页</button>
+        <button id="history-refresh" class="btn btn-line" type="button">刷新</button>
+      </div>
     </div>
   </dialog>
 

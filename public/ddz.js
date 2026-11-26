@@ -673,8 +673,10 @@ export function createDdz(ctx) {
     const side = outcome.landlordWon ? '地主获胜' : '农民获胜';
     const spring = outcome.spring === 'spring' ? ' · 春天' : outcome.spring === 'antiSpring' ? ' · 反春' : '';
     setText($('#ddz-result-title'), `${side}${spring}`);
-    setText($('#ddz-result-copy'), watching ? '本局已结束，可以留下观看下一局。'
-      : won ? `漂亮！本局 ${scoreText(delta)} 分。` : `本局 ${scoreText(delta)} 分，下一局扳回来。`);
+    const lastPlay = current.acts[outcome.winner];
+    const winnerName = room.seats[outcome.winner]?.name || roleOf(room, outcome.winner);
+    const lastCards = lastPlay.cards.map(card => RANKS[rankOf(card)]).join(' ');
+    setText($('#ddz-result-copy'), `${winnerName} 打出最后一手${lastPlay.text}（${lastCards}），手牌已出完。${watching ? '' : `本局 ${scoreText(delta)} 分。`}`);
     $('#ddz-result-rows').innerHTML = room.seats.map((person, seat) => `<tr class="${seat === room.seat ? 'me' : ''}">
       <th scope="row">${escapeHTML(person?.name ?? '空位')}</th>
       <td><span class="role-tag${seat === current.landlord ? ' landlord' : ''}">${seat === current.landlord ? '地主' : '农民'}</span></td>
@@ -730,9 +732,10 @@ export function createDdz(ctx) {
   });
   for (const type of ['pointerup', 'pointercancel']) document.addEventListener(type, () => { drag = null; });
   el.hand.addEventListener('click', event => {
-    // Pointer clicks are handled on pointerdown; this is the keyboard path.
+    // A touchscreen can emit a click with detail 0 after pointerdown.
+    // Only keyboard and assistive activations still need to toggle the card.
     const node = event.target.closest('[data-card]');
-    if (!node || event.detail !== 0) return;
+    if (!node || event.pointerType || event.detail !== 0) return;
     setCard(node, !selected.has(Number(node.dataset.card)));
     syncPlayButton();
   });

@@ -126,7 +126,7 @@ impl Leaderboard {
         })
     }
 
-    async fn rpc(&self, path: &str, body: Value) -> Result<reqwest::Response, String> {
+    pub(crate) async fn rpc(&self, path: &str, body: Value) -> Result<reqwest::Response, String> {
         let url = self.origin.join(path).expect("valid PostgREST RPC path");
         let mut request = self.client.post(url).json(&body);
         if let Some(token) = &self.token {

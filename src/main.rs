@@ -1,6 +1,7 @@
 mod auth;
 mod ddz;
 mod game;
+mod history;
 mod ranking;
 
 use std::{
@@ -37,6 +38,7 @@ struct App {
     store: Arc<Mutex<Store>>,
     auth: Sub2Api,
     leaderboard: Leaderboard,
+    archive: history::Archive,
 }
 
 fn cookie(headers: &HeaderMap) -> Option<&str> {
@@ -440,11 +442,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ddz_results, mut ddz_finished) = tokio::sync::mpsc::unbounded_channel();
     let mut store = Store::new(ranked_results);
     store.attach_ddz_results(ddz_results);
+    let archive = history::Archive::open()?;
+    store.archive = Some(archive.clone());
     let app = App {
         store: Arc::new(Mutex::new(store)),
         auth: Sub2Api::new()?,
         leaderboard: Leaderboard::new()?,
+        archive: archive.clone(),
     };
+    tokio::spawn(archive.sync(app.leaderboard.clone()));
     let champion_app = app.clone();
     tokio::spawn(async move {
         let mut refresh = tokio::time::interval(Duration::from_secs(15));
@@ -570,6 +576,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
         .route("/healthz", get(|| async { Json(json!({"ok": true})) }))
         .route("/api/session", post(session))
+        .route("/api/history", get(history::list))
+        .route("/api/history/{id}", get(history::detail))
+        .route(
+            "/history.js",
+            get(|| async {
+                asset(
+                    "text/javascript; charset=utf-8",
+                    include_bytes!("../public/history.js"),
+                )
+            }),
+        )
         .route("/api/leaderboard", get(leaderboard))
         .route("/api/ddz/leaderboard", get(ddz_leaderboard))
         .route("/api/events", get(events))

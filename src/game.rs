@@ -10,6 +10,7 @@ use tokio::sync::{mpsc::UnboundedSender, watch};
 
 use crate::{
     ddz::room::DdzRoom,
+    history::{Archive, Journal},
     ranking::{ChampionBroadcast, DdzResult, RankedMatch, RankedPlayer, RankedResult},
 };
 
@@ -82,6 +83,8 @@ struct Match {
     #[serde(skip)]
     history: Vec<usize>,
     #[serde(skip)]
+    journal: Journal,
+    #[serde(skip)]
     undo_refused: Option<usize>,
     #[serde(skip)]
     ranked: Option<(RankedMatch, UnboundedSender<RankedResult>)>,
@@ -113,6 +116,7 @@ impl Match {
             undo: None,
             undo_left: [UNDO_LIMIT; 2],
             history: Vec::new(),
+            journal: Journal::default(),
             undo_refused: None,
             ranked,
         }
@@ -123,6 +127,15 @@ impl Match {
     }
 
     fn finish(&mut self, winner: Option<u8>, reason: &'static str) {
+        let result = match winner {
+            Some(1) => "黑棋获胜",
+            Some(2) => "白棋获胜",
+            _ => "和棋",
+        };
+        self.journal.finish(
+            result,
+            json!({"reason":reason,"line":self.line,"winner":winner}),
+        );
         self.status = "finished";
         self.undo = None;
         self.winner = winner;
@@ -188,6 +201,8 @@ impl Match {
         let index = index
             .filter(|&i| self.board.get(i) == Some(&0))
             .ok_or("请选择棋盘上的空交叉点。")?;
+        self.journal
+            .event(Some(usize::from(color - 1)), "落子", json!({"index":index}));
         self.board[index] = color;
         self.last = Some(index);
         self.history.push(index);
@@ -236,6 +251,8 @@ impl Match {
         self.turn_deadline = None;
         self.turn_remaining = Some(deadline - now);
         self.undo_left[usize::from(color - 1)] -= 1;
+        self.journal
+            .event(Some(usize::from(color - 1)), "请求悔棋", Value::Null);
         self.undo = Some(UndoRequest {
             color,
             deadline: now + UNDO_MS,
@@ -248,6 +265,15 @@ impl Match {
             return;
         };
         let remaining = self.turn_remaining.take().unwrap_or(TURN_MS);
+        self.journal.event(
+            None,
+            if accept {
+                "撤回上一手"
+            } else {
+                "悔棋未通过"
+            },
+            json!({"index":self.history.last()}),
+        );
         if accept {
             let index = self.history.pop().expect("undo needs a played move");
             self.board[index] = 0;
@@ -394,6 +420,7 @@ impl Room {
 }
 
 pub struct Store {
+    pub(crate) archive: Option<Archive>,
     started: Instant,
     pub players: HashMap<String, Player>,
     rooms: Vec<Room>,
@@ -432,6 +459,7 @@ impl Store {
         .collect();
         Self {
             started: Instant::now(),
+            archive: None,
             players: HashMap::new(),
             rooms,
             accounts: HashMap::new(),
@@ -690,17 +718,37 @@ impl Store {
                 })
             });
             // Handicap games stay off the daily ranking.
+            let match_id = random_token(16);
             let ranked = (handicap == 0 && players.iter().any(Option::is_some)).then(|| {
                 (
                     RankedMatch {
-                        id: random_token(16),
+                        id: match_id.clone(),
                         players,
                     },
                     self.ranked_results.clone(),
                 )
             });
             let room = &mut self.rooms[index];
-            room.game = Some(Match::new(now, ranked, handicap));
+            let mut game = Match::new(now, ranked, handicap);
+            let names = room
+                .seats
+                .iter()
+                .flatten()
+                .map(|key| self.players[key].name.clone())
+                .collect();
+            game.journal = Journal::start(
+                self.archive.as_ref(),
+                &match_id,
+                "gomoku",
+                &room.id,
+                names,
+                HANDICAP_LABELS[usize::from(handicap)],
+            );
+            for &index in HANDICAP_STONES[usize::from(handicap)] {
+                game.journal
+                    .event(Some(0), "预置黑子", json!({"index":index}));
+            }
+            room.game = Some(game);
             for key in room.seats.iter().flatten() {
                 self.players.get_mut(key).expect("occupied seat").ready = false;
             }
