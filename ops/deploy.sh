@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Forced SSH command for the wzq-deploy user. Reads a gzipped `docker save`
+# of wzq-server:<revision> on stdin, starts it as the `wzq` container and
+# restores the previous image when the health check fails.
 set -euo pipefail
 umask 022
 
@@ -8,56 +11,56 @@ if [[ ! ${SSH_ORIGINAL_COMMAND:-} =~ ^deploy\ ([0-9a-f]{40})$ ]]; then
 fi
 
 revision=${BASH_REMATCH[1]}
-base=/opt/wzq
-target="releases/$revision"
+base=${WZQ_BASE:-/opt/wzq}
+port=${WZQ_PORT:-3041}
+env_file=${WZQ_ENV_FILE:-/etc/wzq/leaderboard.env}
+container=${WZQ_CONTAINER:-wzq}
+image="wzq-server:$revision"
+keep_images=3
+
 exec 9>"$base/.deploy.lock"
 flock -w 60 9
 
-stage=$(mktemp -d "$base/releases/.upload.XXXXXXXX")
-temp_link="$base/.current-$revision"
-trap 'rm -rf -- "$stage"; rm -f -- "$temp_link"' EXIT
+if systemctl is-active --quiet wzq.service 2>/dev/null; then
+  echo 'The old wzq.service is still running on the game port. Stop and disable it first.' >&2
+  exit 1
+fi
 
-python3 -c '
-import io
-from pathlib import PurePosixPath
+upload=$(mktemp "$base/.upload.XXXXXXXX")
+trap 'rm -f -- "$upload"' EXIT
+
+limit=$((512 * 1024 * 1024))
+head -c $((limit + 1)) > "$upload"
+if (($(stat -c %s "$upload") > limit)); then
+  echo 'Compressed image is too large.' >&2
+  exit 1
+fi
+
+# Only accept an archive that holds exactly this revision's image, so an
+# upload can never retag other images on the host (such as the database).
+python3 - "$upload" "$image" <<'PY'
+import json
 import sys
 import tarfile
 
-limit = 32 * 1024 * 1024
-payload = sys.stdin.buffer.read(limit + 1)
-if len(payload) > limit:
-    sys.exit("Compressed release is too large")
+path, expected = sys.argv[1:]
+with tarfile.open(path, mode="r:gz") as archive:
+    member = archive.getmember("manifest.json")
+    manifest = json.load(archive.extractfile(member))
+tags = [tag for entry in manifest for tag in entry.get("RepoTags") or []]
+if tags != [expected]:
+    sys.exit(f"Unexpected image tags in upload: {tags}")
+PY
 
-with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-    total_size = 0
-    for index, entry in enumerate(archive):
-        if index >= 2000:
-            sys.exit("Too many release files")
-        path = PurePosixPath(entry.name)
-        if path.is_absolute() or ".." in path.parts or not (entry.isfile() or entry.isdir()):
-            sys.exit("Invalid release archive entry")
-        total_size += entry.size
-        if total_size > limit:
-            sys.exit("Uncompressed release is too large")
-        archive.extract(entry, path=sys.argv[1], filter="data")
-' "$stage"
+docker load --quiet < "$upload" >/dev/null
+rm -f -- "$upload"
 
-test -s "$stage/bin/wzq-server"
-test -x "$stage/bin/wzq-server"
-chmod 0755 "$stage"
-if [[ ! -d "$base/$target" ]]; then
-  mv -T "$stage" "$base/$target"
-fi
-
-previous=$(readlink "$base/current" || true)
-activate() {
-  ln -sfn "$1" "$temp_link"
-  mv -Tf "$temp_link" "$base/current"
-}
+previous=$(docker inspect --format '{{.Config.Image}}' "$container" 2>/dev/null || true)
 
 healthy() {
-  for attempt in {1..20}; do
-    if curl --silent --fail --max-time 1 http://127.0.0.1:3041/healthz >/dev/null; then
+  for _ in {1..20}; do
+    if [[ $(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null) == true ]] \
+      && curl --silent --fail --max-time 1 "http://127.0.0.1:$port/healthz" >/dev/null; then
       return 0
     fi
     sleep 1
@@ -65,29 +68,53 @@ healthy() {
   return 1
 }
 
-if [[ "$previous" == "$target" ]] && healthy; then
+start() {
+  docker rm --force "$container" >/dev/null 2>&1 || true
+  local env_args=()
+  [[ -r "$env_file" ]] && env_args=(--env-file "$env_file")
+  # Host networking keeps the server on loopback beside PostgREST, where
+  # Caddy already proxies to it.
+  docker run --detach --name "$container" \
+    --restart unless-stopped \
+    --network host \
+    "${env_args[@]}" \
+    --env HOST=127.0.0.1 --env "PORT=$port" \
+    --read-only --tmpfs /tmp \
+    --cap-drop ALL --security-opt no-new-privileges \
+    --memory 192m --pids-limit 256 \
+    --log-opt max-size=10m --log-opt max-file=3 \
+    --label "wzq.revision=${1#wzq-server:}" \
+    "$1" >/dev/null
+}
+
+prune() {
+  docker image ls wzq-server --format '{{.Repository}}:{{.Tag}}' |
+    tail -n +$((keep_images + 1)) |
+    while read -r old; do
+      [[ "$old" == "$image" || "$old" == "$previous" ]] || docker image rm "$old" >/dev/null 2>&1 || true
+    done
+}
+
+if [[ "$previous" == "$image" ]] && healthy; then
   printf '%s is already running. Health check passed.\n' "$revision"
   exit 0
 fi
 
-activate "$target"
-if sudo -n /usr/bin/systemctl restart wzq.service && healthy; then
+if start "$image" && healthy; then
   printf 'Deployed %s. Health check passed.\n' "$revision"
+  prune
   exit 0
 fi
 
-if [[ -n "$previous" && "$previous" != "$target" ]]; then
-  activate "$previous"
-  if sudo -n /usr/bin/systemctl restart wzq.service && healthy; then
+echo "Health check failed for $revision. Recent logs:" >&2
+docker logs --tail 30 "$container" >&2 2>&1 || true
+if [[ -n "$previous" && "$previous" != "$image" ]]; then
+  if start "$previous" && healthy; then
     printf 'Deployment failed. Restored %s.\n' "$previous" >&2
   else
     printf 'Deployment failed. Health check also failed after restoring %s.\n' "$previous" >&2
   fi
 else
-  printf 'Health check failed for %s.\n' "$revision" >&2
-  if [[ -z "$previous" ]]; then
-    rm -f -- "$base/current"
-    sudo -n /usr/bin/systemctl restart wzq.service || true
-  fi
+  docker rm --force "$container" >/dev/null 2>&1 || true
 fi
 exit 1

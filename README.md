@@ -42,6 +42,8 @@ Rust 后端通过 HTTPS 调用 Sub2API 的 `/api/v1/auth/login`、`/api/v1/auth/
 
 线上棋室使用 [https://wzq.zhisuanapi.cn](https://wzq.zhisuanapi.cn)。
 
-向 `main` 推送后，GitHub Actions 会检查前端语法和 Rust 代码，编译 Linux 可执行文件，并通过独立部署密钥上传。也可以从 GitHub 仓库的 Actions 页面手动运行 `Deploy Gomoku`。服务器启动新版后检查 `/healthz`，检查失败时会尝试恢复上一版本。每次发布重启服务，会清空正在进行的对局和登录会话。
+向 `main` 推送后，GitHub Actions 会检查前端语法和 Rust 代码，构建 Docker 镜像 `wzq-server:<提交号>`，并通过独立部署密钥把镜像上传到服务器。也可以从 GitHub 仓库的 Actions 页面手动运行 `Deploy Gomoku`。服务器只接受标签正好是本次提交号的镜像，加载后用它替换 `wzq` 容器并检查 `/healthz`，检查失败时会恢复上一版本的镜像。服务器保留最近 3 个版本的镜像。每次发布都会重启容器，清空正在进行的对局和登录会话。
 
-服务器使用 `ops/wzq.service` 和 `ops/deploy.sh`，由现有 Caddy 按 `ops/wzq.caddy` 提供 HTTPS 反代。自动发布需要仓库密钥 `WZQ_DEPLOY_SSH_KEY`，以及变量 `WZQ_DEPLOY_HOST` 和 `WZQ_DEPLOY_KNOWN_HOST`。
+游戏容器使用主机网络，只监听 `127.0.0.1:3041`，从 `/etc/wzq/leaderboard.env` 读取排行榜配置。该文件需要部署用户可读，且值不能加引号。容器以非 root 用户运行，文件系统只读，内存上限 192 MB，日志自动轮转。服务器上的部署用户 `wzq-deploy` 需要在 `docker` 组中，它的 SSH 密钥只能执行 `ops/deploy.sh`。HTTPS 由现有 Caddy 按 `ops/wzq.caddy` 反代。自动发布需要仓库密钥 `WZQ_DEPLOY_SSH_KEY`，以及变量 `WZQ_DEPLOY_HOST` 和 `WZQ_DEPLOY_KNOWN_HOST`。
+
+查看线上服务可在服务器上运行 `docker ps --filter name=wzq` 和 `docker logs -f wzq`。
