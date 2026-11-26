@@ -18,6 +18,8 @@ use super::{
 pub const BID_MS: u64 = 15_000;
 pub const DOUBLE_MS: u64 = 15_000;
 pub const PLAY_MS: u64 = 25_000;
+/// Time the clients spend animating the deal before bidding starts.
+pub const DEAL_MS: u64 = 2_200;
 /// How long a bot "thinks" before acting.
 const BOT_MS: u64 = 1_000;
 /// How long 托管 waits before acting for a human.
@@ -110,6 +112,8 @@ pub struct Table {
     pub trustee: [bool; 3],
     pub outcome: Option<Outcome>,
     pub events: Vec<Event>,
+    /// Counts deals, redeals included, so clients can animate each one.
+    deals: u32,
 }
 
 fn next(seat: usize) -> usize {
@@ -144,6 +148,7 @@ impl Table {
             trustee: [false; 3],
             outcome: None,
             events: Vec::new(),
+            deals: 0,
         };
         table.deal(now);
         table
@@ -169,7 +174,9 @@ impl Table {
         };
         self.robs = 0;
         self.acts = Default::default();
-        self.start_turn(start, now, BID_MS);
+        self.deals += 1;
+        // Bidding (and its clock) starts once the cards have been dealt out.
+        self.start_turn(start, now + DEAL_MS, BID_MS);
     }
 
     fn start_turn(&mut self, seat: usize, now: u64, limit: u64) {
@@ -539,6 +546,7 @@ impl Table {
         };
         json!({
             "phase": self.phase,
+            "deal": self.deals,
             "landlord": self.landlord,
             "turn": self.turn,
             "deadline": self.deadline,
@@ -747,7 +755,12 @@ mod tests {
     fn timeouts_turn_on_trustee_and_hands_stay_private() {
         let mut table = Table::new(0);
         let start = table.turn;
-        table.tick(BID_MS, [false; 3], [true; 3]);
+        table.tick(DEAL_MS + BID_MS - 1, [false; 3], [true; 3]);
+        assert!(
+            !table.trustee[start],
+            "the deal animation does not eat the clock"
+        );
+        table.tick(DEAL_MS + BID_MS, [false; 3], [true; 3]);
         assert!(table.trustee[start]);
         assert_ne!(table.turn, start);
         let view = table.view(Some(next(start)));

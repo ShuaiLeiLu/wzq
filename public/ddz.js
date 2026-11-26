@@ -1,10 +1,13 @@
 // 弈间 · 斗地主: lobby, table, hand selection, chat and result.
 // app.js owns the connection and passes shared helpers in through createDdz().
 
+import { createFx, playWords } from './ddz-fx.js';
+
 const RANKS = ['3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2', '小王', '大王'];
 const SUITS = ['♠', '♥', '♣', '♦'];
 const SUIT_NAMES = ['黑桃', '红桃', '梅花', '方块'];
 const PLAY_MS = 25_000;
+const DEAL_STEP_MS = 40;
 const BID_MS = 15_000;
 const EMOTES = ['😄', '👍', '😂', '😮', '😭', '🎉', '🔥', '🍵'];
 const PHRASES = ['来了来了，马上出！', '这手牌，稳了。', '好牌！佩服佩服。', '炸得漂亮！', '队友，靠你了！', '别急，让我想想～', '不好意思，又赢啦。', '再来一局？'];
@@ -68,7 +71,13 @@ export function createDdz(ctx) {
   let drag = null;
   let lastKey = null;
   let sideTimer = null;
+  let seen = null;
+  let lastTick = null;
+  let wasDealing = null;
   const barrageQueue = [];
+  const fx = createFx();
+  const felt = $('#felt');
+  const banner = $('#ddz-banner');
 
   const table = () => ctx.state()?.table;
   const game = () => table()?.game;
@@ -420,15 +429,151 @@ export function createDdz(ctx) {
     renderCounter(room);
     renderChat(room);
     renderResult(room);
+    notice(room);
+    wasDealing = null;
     renderClock();
+  }
+
+  /* ---------- Effects ---------- */
+
+  function showBanner(text, tone = '') {
+    banner.textContent = text;
+    banner.className = `fx-banner ${tone}`;
+    void banner.offsetWidth;
+    banner.classList.add('show');
+  }
+
+  function shake() {
+    felt.classList.remove('shake');
+    void felt.offsetWidth;
+    felt.classList.add('shake');
+  }
+
+  function animateDeal() {
+    requestAnimationFrame(() => {
+      const box = felt.getBoundingClientRect();
+      const deck = el.bottom.getBoundingClientRect();
+      const ox = deck.left + deck.width / 2;
+      const oy = deck.top + deck.height / 2;
+      // Cards go round the table one at a time, starting with this seat.
+      [...el.hand.querySelectorAll('.pcard')].forEach((node, index) => {
+        const rect = node.getBoundingClientRect();
+        node.style.setProperty('--fx', `${ox - rect.left - rect.width / 2}px`);
+        node.style.setProperty('--fy', `${oy - rect.top - rect.height / 2}px`);
+        node.style.animationDelay = `${index * 3 * DEAL_STEP_MS}ms`;
+        node.classList.add('dealing');
+        node.addEventListener('animationend', () => {
+          node.classList.remove('dealing');
+          node.style.animationDelay = '';
+        }, { once: true });
+      });
+      for (const [side, offset] of [[el.right, 1], [el.left, 2]]) {
+        const target = (side.querySelector('.opp-count') ?? side).getBoundingClientRect();
+        for (let index = 0; index < 17; index++) {
+          const ghost = document.createElement('span');
+          ghost.className = 'pcard mini back ghost';
+          ghost.style.left = `${ox - box.left}px`;
+          ghost.style.top = `${oy - box.top}px`;
+          ghost.style.setProperty('--tx', `${target.left + target.width / 2 - ox}px`);
+          ghost.style.setProperty('--ty', `${target.top + target.height / 2 - oy}px`);
+          ghost.style.animationDelay = `${(index * 3 + offset) * DEAL_STEP_MS}ms`;
+          ghost.addEventListener('animationend', () => ghost.remove(), { once: true });
+          felt.append(ghost);
+        }
+      }
+      el.bottom.classList.remove('dealt');
+      void el.bottom.offsetWidth;
+      el.bottom.classList.add('dealt');
+      setTimeout(() => el.bottom.classList.remove('dealt'), 51 * DEAL_STEP_MS + 500);
+      for (let index = 0; index < 51; index++) setTimeout(() => fx.play('deal'), index * DEAL_STEP_MS);
+    });
+  }
+
+  function actEffect(act) {
+    if (act.cards.length) {
+      if (act.kind === 'rocket') {
+        fx.play('rocket');
+        shake();
+        showBanner('王炸', 'rocket');
+      } else if (act.kind === 'bomb') {
+        fx.play('bomb');
+        shake();
+        showBanner('炸弹', 'bomb');
+      } else {
+        fx.play('play');
+        if (act.kind.startsWith('plane')) showBanner('飞机', 'plane');
+      }
+    } else {
+      fx.play(['叫地主', '抢地主', '加倍'].includes(act.text) ? 'bid' : act.text === '不出' ? 'pass' : 'decline');
+    }
+    fx.say(playWords(act));
+  }
+
+  /** Sounds and effects for whatever changed since the last update. */
+  function notice(room) {
+    const current = room.game;
+    if (!current) {
+      seen = { room: room.id };
+      return;
+    }
+    const acts = current.acts.map(act => (act ? `${act.text}|${act.cards.join(',')}` : ''));
+    const seat = room.seat;
+    const myTurn = seat !== -1 && isActive(current, seat);
+    const fresh = seen?.room !== room.id;
+    if (fresh || current.deal !== seen.deal) {
+      // A brand-new deal (not a reconnect mid-bidding) is dealt out on screen.
+      if (current.phase === 'bidding' && current.acts.every(act => !act)) animateDeal();
+      seen = { room: room.id, deal: current.deal, acts, landlord: current.landlord, phase: current.phase, myTurn, alarms: new Set() };
+      return;
+    }
+    acts.forEach((key, index) => {
+      if (key && key !== seen.acts[index]) actEffect(current.acts[index]);
+    });
+    if (current.landlord !== null && seen.landlord === null) {
+      setTimeout(() => fx.play('landlord'), 250);
+    }
+    if (current.phase === 'playing') {
+      current.counts.forEach((count, index) => {
+        const key = `${index}:${count}`;
+        if (count > 0 && count <= 2 && !seen.alarms.has(key)) {
+          seen.alarms.add(key);
+          setTimeout(() => fx.say(count === 1 ? '我只剩一张牌了' : '我只剩两张牌了'), 900);
+        }
+      });
+    }
+    if (current.phase === 'finished' && seen.phase !== 'finished') {
+      const outcome = current.outcome;
+      const won = seat === -1 ? true : outcome.deltas[seat] > 0;
+      setTimeout(() => fx.play(won ? 'win' : 'lose'), 500);
+      if (outcome.spring) {
+        fx.play('spring');
+        showBanner(outcome.spring === 'spring' ? '春天' : '反春', 'spring');
+      }
+    }
+    if (myTurn && !seen.myTurn && current.phase !== 'finished') fx.play('turn');
+    seen = { ...seen, acts, landlord: current.landlord, phase: current.phase, myTurn };
   }
 
   function renderClock() {
     const current = game();
-    if (!current || current.phase === 'finished') return;
+    if (!current || current.phase === 'finished') {
+      el.actions.hidden = false;
+      return;
+    }
     const limit = current.phase === 'playing' ? PLAY_MS : BID_MS;
-    const left = remaining(current.deadline);
+    // Bidding waits for the deal animation; until then there is nothing to do.
+    const dealing = current.phase === 'bidding' && remaining(current.deadline) > BID_MS;
+    if (dealing !== wasDealing) {
+      wasDealing = dealing;
+      setText(el.message, dealing ? '正在发牌…' : tableMessage(table()));
+      el.actions.hidden = dealing;
+      for (const node of document.querySelectorAll('#ddz-view [data-clock]')) node.hidden = dealing;
+    }
+    const left = Math.min(limit, remaining(current.deadline));
     const seconds = Math.ceil(left / 1000);
+    const mine = mySeat() !== -1 && isActive(current, mySeat());
+    if (mine && seconds <= 5 && seconds > 0 && seconds !== lastTick) fx.play('tick');
+    lastTick = mine ? seconds : null;
     for (const node of document.querySelectorAll('#ddz-view [data-clock]')) {
       setText(node.querySelector('b'), String(seconds));
       node.querySelector('.ring').style.strokeDashoffset = String(100 - Math.min(100, (left / limit) * 100));
@@ -642,6 +787,8 @@ export function createDdz(ctx) {
   $('#ddz-emotes').innerHTML = EMOTES.map(emote => `<button type="button" data-action="ddz-say" data-text="${emote}" aria-label="发送表情 ${emote}">${emote}</button>`).join('');
   $('#ddz-phrases').innerHTML = PHRASES.map(text => `<button type="button" data-action="ddz-say" data-text="${text}">${text}</button>`).join('');
 
+  $('#ddz-sound-toggle').setAttribute('aria-pressed', String(fx.sound));
+  $('#ddz-voice-toggle').setAttribute('aria-pressed', String(fx.voice));
   for (const [id, key] of [['#ddz-counter-toggle', COUNTER_KEY], ['#ddz-barrage-toggle', BARRAGE_KEY]]) {
     try {
       if (localStorage.getItem(key) === 'false') $(id).setAttribute('aria-pressed', 'false');
@@ -722,6 +869,16 @@ export function createDdz(ctx) {
       case 'ddz-barrage':
         if (!toggle(button, BARRAGE_KEY)) clearBarrage();
         return true;
+      case 'ddz-sound':
+        fx.setSound(button.getAttribute('aria-pressed') !== 'true');
+        button.setAttribute('aria-pressed', String(fx.sound));
+        if (fx.sound) fx.play('bid');
+        return true;
+      case 'ddz-voice':
+        fx.setVoice(button.getAttribute('aria-pressed') !== 'true');
+        button.setAttribute('aria-pressed', String(fx.voice));
+        if (fx.voice) fx.say('语音播报已开启');
+        return true;
       case 'ddz-chat':
         $('#ddz-chat').scrollIntoView({ behavior: 'smooth', block: 'start' });
         el.chatInput.focus({ preventScroll: true });
@@ -754,6 +911,7 @@ export function createDdz(ctx) {
   });
 
   function leaveTable() {
+    seen = null;
     selected.clear();
     handKey = '';
     lastKey = null;

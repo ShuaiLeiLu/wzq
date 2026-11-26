@@ -606,7 +606,7 @@ input::placeholder { color: #8b8270; }
   .result-actions .btn { flex: none; width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; }
   .barrage-item { animation-duration: 10s !important; }
 }
 
@@ -807,6 +807,41 @@ input::placeholder { color: #8b8270; }
 .settle .points { font-size: 16px; }
 .settle-factors { font-size: 12px !important; }
 .rank-switch { order: 4; flex-basis: 100%; max-width: 220px; }
+
+/* ---------- Table effects ---------- */
+.hand .pcard.dealing { animation: deal-fly 0.34s cubic-bezier(0.2, 0.75, 0.3, 1) both; }
+@keyframes deal-fly {
+  from { opacity: 0; transform: translate(var(--fx), var(--fy)) rotate(-14deg) scale(0.55); }
+  25% { opacity: 1; }
+}
+.ghost { position: absolute; z-index: 3; pointer-events: none; transform: translate(-50%, -50%); animation: ghost-fly 0.34s cubic-bezier(0.3, 0.6, 0.3, 1) both; }
+@keyframes ghost-fly {
+  from { opacity: 0; transform: translate(-50%, -50%) rotate(-10deg) scale(0.9); }
+  20% { opacity: 1; }
+  to { opacity: 0.85; transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) rotate(8deg) scale(0.6); }
+}
+.bottom-cards.dealt .mini-cards { animation: bottom-in 0.4s ease both; animation-delay: 2.05s; }
+@keyframes bottom-in { from { opacity: 0; transform: scale(0.8); } }
+.felt.shake { animation: shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+@keyframes shake {
+  10%, 90% { transform: translate(-2px, 1px); }
+  20%, 80% { transform: translate(4px, -2px); }
+  30%, 50%, 70% { transform: translate(-7px, 3px); }
+  40%, 60% { transform: translate(7px, -3px); }
+}
+.fx-banner { position: absolute; left: 50%; top: 42%; z-index: 4; opacity: 0; pointer-events: none; transform: translate(-50%, -50%); font: 900 clamp(44px, 9vw, 96px)/1 var(--serif); letter-spacing: 0.2em; color: var(--gold-hi); text-shadow: 0 4px 0 #7a2a1f, 0 0 30px rgba(255, 200, 120, 0.9); white-space: nowrap; }
+.fx-banner.show { animation: banner 1.3s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.fx-banner.rocket { color: #fff1c9; text-shadow: 0 4px 0 var(--seal), 0 0 40px rgba(255, 120, 80, 1); }
+.fx-banner.plane, .fx-banner.spring { font-size: clamp(36px, 6vw, 64px); color: #fff8e6; text-shadow: 0 3px 0 var(--jade), 0 0 24px rgba(255, 236, 190, 0.8); }
+@keyframes banner {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+  18% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  75% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
+  100% { opacity: 0; transform: translate(-50%, -60%) scale(1.04); }
+}
+.felt::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 45%, rgba(255, 220, 150, 0.55), transparent 60%); }
+.felt.shake::after { animation: flash 0.6s ease-out; }
+@keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
 @media (max-width: 1180px) {
   .ddz-grid { grid-template-columns: minmax(0, 1fr); }

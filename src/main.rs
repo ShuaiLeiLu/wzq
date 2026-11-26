@@ -532,6 +532,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/wzq", get(page))
         .route("/ddz", get(page))
         .route(
+            "/ddz-fx.js",
+            get(|| async {
+                asset(
+                    "text/javascript; charset=utf-8",
+                    include_bytes!("../public/ddz-fx.js"),
+                )
+            }),
+        )
+        .route(
             "/ddz.js",
             get(|| async {
                 asset(
