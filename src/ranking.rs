@@ -38,6 +38,30 @@ impl RankedMatch {
     }
 }
 
+/// A Dou Dizhu deal between three humans, at least one signed in.
+pub struct DdzMatch {
+    pub id: String,
+    pub players: [Option<RankedPlayer>; 3],
+}
+
+pub struct DdzResult {
+    game: DdzMatch,
+    finished_at: u64,
+    deltas: [i64; 3],
+    winners: [bool; 3],
+}
+
+impl DdzMatch {
+    pub fn finish(self, deltas: [i64; 3], winners: [bool; 3]) -> DdzResult {
+        DdzResult {
+            game: self,
+            finished_at: unix_seconds(),
+            deltas,
+            winners,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Leaderboard {
     origin: Url,
@@ -135,6 +159,46 @@ impl Leaderboard {
 
     pub async fn standings(&self, viewer: Option<u64>) -> Result<Standings, String> {
         self.rpc("/rpc/daily_leaderboard", json!({"p_viewer": viewer}))
+            .await?
+            .json()
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn record_ddz(&self, result: &DdzResult) -> Result<(), String> {
+        let players: Vec<Value> = (0..3)
+            .map(|seat| match &result.game.players[seat] {
+                Some(player) => json!({
+                    "id": player.id,
+                    "name": player.name,
+                    "delta": result.deltas[seat],
+                    "won": result.winners[seat],
+                }),
+                None => Value::Null,
+            })
+            .collect();
+        self.rpc(
+            "/rpc/record_ddz_match",
+            json!({
+                "p_id": result.game.id,
+                "p_finished_at": result.finished_at,
+                "p_players": players,
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn ddz_standings(&self, viewer: Option<u64>) -> Result<Value, String> {
+        self.rpc("/rpc/ddz_daily_leaderboard", json!({"p_viewer": viewer}))
+            .await?
+            .json()
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    pub async fn ddz_yesterday_champion(&self) -> Result<ChampionBroadcast, String> {
+        self.rpc("/rpc/ddz_previous_day_champion", json!({}))
             .await?
             .json()
             .await

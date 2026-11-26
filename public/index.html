@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#F6F1E7">
-  <meta name="description" content="弈间在线五子棋。和好友实时对弈，也可以观战、发弹幕，冲击每日排行。">
-  <title>弈间 · 在线五子棋</title>
+  <meta name="description" content="弈间在线五子棋与斗地主。和好友实时对弈、组局斗地主，也可以观战、发弹幕，冲击每日排行。">
+  <title>弈间 · 五子棋 · 斗地主</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
@@ -31,12 +31,17 @@
     <symbol id="i-door" viewBox="0 0 24 24"><path d="M13 4h6v16h-6M3 12h11m-4-4 4 4-4 4"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
     <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+    <symbol id="i-cards" viewBox="0 0 24 24"><rect x="3" y="5" width="11" height="15" rx="2"/><path d="m14 6.5 4.6 1.2a2 2 0 0 1 1.4 2.4l-2.6 9.7a2 2 0 0 1-2.4 1.4L12 20.5"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9 17h6"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z"/></symbol>
+    <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11m0-6.5a1.5 1.5 0 0 1 3 0V11m0-5a1.5 1.5 0 0 1 3 0v7.5a7 7 0 0 1-7 7h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.5-2L8 15"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l1-5L15.5 4.5a2.1 2.1 0 0 1 3 0l1 1a2.1 2.1 0 0 1 0 3L9 19l-5 1Z"/></symbol>
   </svg>
 
   <div class="champion" id="champion" hidden>
     <div class="wrap champion-inner" role="status" aria-label="排行榜播报">
-      <span class="champion-tag"><svg class="icon"><use href="#i-crown"/></svg>昨日榜首</span>
+      <span class="champion-tag"><svg class="icon"><use href="#i-crown"/></svg><span id="champion-label">昨日榜首</span></span>
       <p id="champion-text"></p>
       <strong class="champion-score" id="champion-score"></strong>
     </div>
@@ -44,12 +49,14 @@
 
   <header class="topbar">
     <div class="wrap topbar-inner">
-      <button class="brand" type="button" data-action="lobby" aria-label="弈间大厅">
+      <button class="brand" type="button" data-action="game" data-game="hub" aria-label="弈间游戏大厅">
         <span class="seal" aria-hidden="true">弈</span>
-        <span class="brand-text"><b>弈间</b><small>GOMOKU · 在线五子棋</small></span>
+        <span class="brand-text"><b>弈间</b><small>五子棋 · 斗地主</small></span>
       </button>
       <nav class="nav" aria-label="主导航">
-        <button class="nav-link" id="nav-lobby" type="button" data-action="lobby" aria-current="page"><svg class="icon"><use href="#i-grid"/></svg><span>对弈大厅</span></button>
+        <button class="nav-link" id="nav-hub" type="button" data-action="game" data-game="hub" aria-current="page"><svg class="icon"><use href="#i-door"/></svg><span>大厅</span></button>
+        <button class="nav-link" id="nav-lobby" type="button" data-action="game" data-game="gomoku"><svg class="icon"><use href="#i-grid"/></svg><span>五子棋</span></button>
+        <button class="nav-link" id="nav-ddz" type="button" data-action="game" data-game="ddz"><svg class="icon"><use href="#i-cards"/></svg><span>斗地主</span></button>
         <button class="nav-link" type="button" data-action="ranking" aria-haspopup="dialog"><svg class="icon"><use href="#i-trophy"/></svg><span>今日排行</span></button>
         <button class="nav-link" type="button" data-action="rules" aria-haspopup="dialog"><svg class="icon"><use href="#i-book"/></svg><span>游戏规则</span></button>
       </nav>
@@ -66,7 +73,89 @@
   </header>
 
   <main id="main">
-    <div id="lobby" class="wrap lobby">
+    <div class="wrap elsewhere" id="elsewhere" hidden>
+      <span id="elsewhere-text"></span>
+      <button class="btn btn-gold-flat" type="button" data-action="back-to-room">回到房间<svg class="icon"><use href="#i-next"/></svg></button>
+    </div>
+    <div id="hub" class="wrap hub" hidden>
+      <section class="hero hub-hero" aria-labelledby="hub-title">
+        <div class="hero-copy">
+          <span class="eyebrow"><i></i>五子棋 · 斗地主 · 好友约局</span>
+          <h1 id="hub-title">弈间<br><em>棋牌游戏大厅</em></h1>
+          <p class="hero-lead">一边是黑白纵横的五子棋，一边是三人成局的斗地主。挑一款游戏坐下来，邀好友同玩，或者先去观战凑个热闹。</p>
+          <form id="hub-code-form" class="code-form" novalidate>
+            <label for="hub-join-code">凭房号进入</label>
+            <input id="hub-join-code" type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="五子棋、斗地主房号均可" autocomplete="off" aria-describedby="hub-join-error" required>
+            <button class="btn btn-ink" type="submit" data-network disabled>进入</button>
+          </form>
+          <p id="hub-join-error" class="field-error" role="alert" hidden></p>
+          <dl class="hero-stats">
+            <div><dt>位玩家在线</dt><dd id="hub-stat-online">—</dd></div>
+            <div><dt>局正在进行</dt><dd id="hub-stat-playing">—</dd></div>
+            <div><dt>每日排行重置</dt><dd>00:00</dd></div>
+          </dl>
+        </div>
+        <div class="hero-art hub-art" aria-hidden="true">
+          <div class="hub-board"><div class="wood"><div class="wood-lines"></div><i class="mini-stone b" style="left:43.75%;top:50%"></i><i class="mini-stone w" style="left:50%;top:43.75%"></i><i class="mini-stone b" style="left:56.25%;top:56.25%"></i><i class="mini-stone w" style="left:37.5%;top:56.25%"></i><i class="mini-stone b last" style="left:50%;top:62.5%"></i></div></div>
+          <span class="pcard hub-card" style="--i:0"><b>A</b><i>♠</i></span>
+          <span class="pcard joker big hub-card" style="--i:1"><b>大王</b><i>★</i></span>
+          <span class="pcard red hub-card" style="--i:2"><b>2</b><i>♥</i></span>
+        </div>
+      </section>
+
+      <section class="games" aria-label="选择游戏">
+        <article class="game-card game-gomoku">
+          <div class="game-art" aria-hidden="true"><div class="wood"><div class="wood-lines"></div><i class="mini-stone b" style="left:43.75%;top:50%"></i><i class="mini-stone w" style="left:50%;top:43.75%"></i><i class="mini-stone b" style="left:56.25%;top:56.25%"></i><i class="mini-stone w last" style="left:43.75%;top:37.5%"></i></div></div>
+          <div class="game-main">
+            <div class="game-title"><h2>五子棋</h2><span class="chip live" id="hub-gomoku-chip"><i></i><span>—</span></span></div>
+            <p>十五道纵横，先连五子者胜。支持让子、悔棋，双人对弈每手 30 秒。</p>
+            <div class="game-actions">
+              <button class="btn btn-gold" type="button" data-action="game" data-game="gomoku">进入五子棋大厅<svg class="icon"><use href="#i-next"/></svg></button>
+              <button class="btn btn-line" type="button" data-action="quick" data-network disabled><svg class="icon"><use href="#i-zap"/></svg>快速开局</button>
+            </div>
+          </div>
+        </article>
+        <article class="game-card game-ddz">
+          <div class="game-art game-art-cards" aria-hidden="true">
+            <span class="pcard" style="--i:-1"><b>A</b><i>♠</i></span>
+            <span class="pcard joker" style="--i:0"><b>大王</b><i>★</i></span>
+            <span class="pcard red" style="--i:1"><b>2</b><i>♥</i></span>
+          </div>
+          <div class="game-main">
+            <div class="game-title"><h2>斗地主</h2><span class="chip live" id="hub-ddz-chip"><i></i><span>—</span></span></div>
+            <p>三人一桌，叫地主、抢地主、加倍，炸弹王炸翻倍。人不够时机器人补位。</p>
+            <div class="game-actions">
+              <button class="btn btn-gold" type="button" data-action="game" data-game="ddz">进入斗地主大厅<svg class="icon"><use href="#i-next"/></svg></button>
+              <button class="btn btn-line" type="button" data-action="ddz-quick" data-network disabled><svg class="icon"><use href="#i-zap"/></svg>快速开局</button>
+              <button class="btn btn-line" type="button" data-action="ddz-practice" data-network disabled><svg class="icon"><use href="#i-bot"/></svg>人机练习</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="hub-ranks" aria-label="今日排行">
+        <section class="card rank-card" aria-labelledby="hub-rank-gomoku-title">
+          <div class="rank-card-head">
+            <svg class="icon" aria-hidden="true"><use href="#i-trophy"/></svg>
+            <h2 id="hub-rank-gomoku-title">五子棋 · 今日排行</h2>
+            <span>胜 +1 · 负 −1</span>
+          </div>
+          <ol class="rank-list" id="hub-rank-gomoku"><li class="rank-empty">正在读取排行榜…</li></ol>
+          <div class="rank-card-foot"><span>登录后对局计入排行</span><button class="text-link" type="button" data-action="ranking" data-game="gomoku">完整榜单<svg class="icon"><use href="#i-next"/></svg></button></div>
+        </section>
+        <section class="card rank-card" aria-labelledby="hub-rank-ddz-title">
+          <div class="rank-card-head">
+            <svg class="icon" aria-hidden="true"><use href="#i-trophy"/></svg>
+            <h2 id="hub-rank-ddz-title">斗地主 · 今日积分</h2>
+            <span>底分 × 倍数</span>
+          </div>
+          <ol class="rank-list" id="hub-rank-ddz"><li class="rank-empty">正在读取排行榜…</li></ol>
+          <div class="rank-card-foot"><span>三人真人局计入排行</span><button class="text-link" type="button" data-action="ranking" data-game="ddz">完整榜单<svg class="icon"><use href="#i-next"/></svg></button></div>
+        </section>
+      </section>
+    </div>
+
+    <div id="lobby" class="wrap lobby" hidden>
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
           <span class="eyebrow"><i></i>实时对弈 · 好友邀约 · 观战弹幕</span>
@@ -138,6 +227,91 @@
               <li><span class="guide-no" aria-hidden="true">壹</span><span><b>入座</b>选一间棋室，或把邀请链接发给好友</span></li>
               <li><span class="guide-no" aria-hidden="true">贰</span><span><b>准备</b>双方点击「准备」，系统抽签分黑白</span></li>
               <li><span class="guide-no" aria-hidden="true">叁</span><span><b>落子</b>黑棋先行，每手 30 秒，先连五子者胜</span></li>
+            </ol>
+            <button class="text-link" type="button" data-action="rules">完整游戏规则<svg class="icon"><use href="#i-next"/></svg></button>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+
+    <div id="ddz-lobby" class="wrap lobby ddz-lobby" hidden>
+      <section class="hero" aria-labelledby="ddz-hero-title">
+        <div class="hero-copy">
+          <span class="eyebrow"><i></i>三人成局 · 机器人补位 · 观战弹幕</span>
+          <h1 id="ddz-hero-title">一副好牌<br><em>斗智斗趣</em></h1>
+          <p class="hero-lead">一副五十四张牌，三人一桌。叫地主、抢地主、加倍，炸弹王炸翻倍计分。人不够时请机器人补位，随时开局。</p>
+          <div class="hero-actions">
+            <button class="btn btn-gold btn-xl" type="button" data-action="ddz-quick" data-network disabled><svg class="icon"><use href="#i-zap"/></svg>快速开局</button>
+            <button class="btn btn-ink btn-xl" type="button" data-action="ddz-practice" data-network disabled><svg class="icon"><use href="#i-bot"/></svg>人机练习</button>
+            <button class="btn btn-line btn-xl" type="button" data-action="ddz-create" data-network disabled><svg class="icon"><use href="#i-plus"/></svg>创建牌桌</button>
+          </div>
+          <form id="ddz-code-form" class="code-form" novalidate>
+            <label for="ddz-join-code">凭房号入座</label>
+            <input id="ddz-join-code" type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="输入四位房间号" autocomplete="off" aria-describedby="ddz-join-error" required>
+            <button class="btn btn-ink" type="submit" data-network disabled>加入</button>
+          </form>
+          <p id="ddz-join-error" class="field-error" role="alert" hidden></p>
+          <dl class="hero-stats">
+            <div><dt>位玩家在线</dt><dd id="ddz-stat-online">—</dd></div>
+            <div><dt>桌正在斗地主</dt><dd id="ddz-stat-playing">—</dd></div>
+            <div><dt>每日排行重置</dt><dd>00:00</dd></div>
+          </dl>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="fan-stage">
+            <span class="pcard hero-card" style="--i:-2"><b>A</b><i>♠</i></span>
+            <span class="pcard hero-card red" style="--i:-1"><b>K</b><i>♥</i></span>
+            <span class="pcard hero-card joker" style="--i:0"><b>大王</b><i>★</i></span>
+            <span class="pcard hero-card red" style="--i:1"><b>2</b><i>♦</i></span>
+            <span class="pcard hero-card" style="--i:2"><b>Q</b><i>♣</i></span>
+          </div>
+          <div class="hero-chip"><span class="mini-hat" aria-hidden="true">地</span><span><b id="ddz-hero-chip-title">牌桌已备好</b><small id="ddz-hero-chip-note">三缺一？机器人随时补位</small></span></div>
+        </div>
+      </section>
+
+      <div class="lobby-grid">
+        <section class="rooms" aria-labelledby="tables-title">
+          <div class="section-head">
+            <div>
+              <h2 id="tables-title">牌桌</h2>
+              <span class="section-note" id="table-count">正在载入</span>
+            </div>
+            <div class="rooms-tools">
+              <div class="segmented" role="group" aria-label="筛选牌桌">
+                <button type="button" data-action="ddz-filter" data-filter="all" aria-pressed="true">全部</button>
+                <button type="button" data-action="ddz-filter" data-filter="open" aria-pressed="false">可入座</button>
+                <button type="button" data-action="ddz-filter" data-filter="watch" aria-pressed="false">可观战</button>
+              </div>
+              <label class="search">
+                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                <input id="table-search" type="search" placeholder="搜索牌桌或房号" aria-label="搜索牌桌或房号" autocomplete="off">
+              </label>
+            </div>
+          </div>
+          <div class="room-list" id="table-list" aria-busy="true"><p class="empty">正在载入牌桌…</p></div>
+        </section>
+
+        <aside class="lobby-side" aria-label="斗地主排行与玩法">
+          <section class="card rank-card" aria-labelledby="ddz-side-rank-title">
+            <div class="rank-card-head">
+              <svg class="icon" aria-hidden="true"><use href="#i-trophy"/></svg>
+              <h2 id="ddz-side-rank-title">今日积分</h2>
+              <span>底分 × 倍数</span>
+            </div>
+            <ol class="rank-list" id="ddz-side-rank-list"><li class="rank-empty">正在读取排行榜…</li></ol>
+            <div class="rank-card-foot">
+              <span id="ddz-side-rank-own">登录后三人真人局计入排行</span>
+              <button class="text-link" type="button" data-action="ranking">完整榜单<svg class="icon"><use href="#i-next"/></svg></button>
+            </div>
+          </section>
+
+          <section class="card guide" aria-labelledby="ddz-guide-title">
+            <h2 id="ddz-guide-title">三步开局</h2>
+            <ol>
+              <li><span class="guide-no" aria-hidden="true">壹</span><span><b>入座</b>选一张牌桌，人不够就请机器人补位</span></li>
+              <li><span class="guide-no" aria-hidden="true">贰</span><span><b>叫地主</b>叫、抢、加倍，每次都让倍数翻番</span></li>
+              <li><span class="guide-no" aria-hidden="true">叁</span><span><b>出牌</b>地主先出，先出完手牌的一方获胜</span></li>
             </ol>
             <button class="text-link" type="button" data-action="rules">完整游戏规则<svg class="icon"><use href="#i-next"/></svg></button>
           </section>
@@ -242,11 +416,78 @@
         </aside>
       </div>
     </section>
+
+    <section id="ddz-view" class="room ddz" aria-labelledby="ddz-title" hidden>
+      <div class="room-bar">
+        <div class="wrap room-bar-inner">
+          <button class="btn btn-quiet" type="button" data-action="ddz-lobby"><svg class="icon"><use href="#i-back"/></svg>大厅</button>
+          <div class="room-ident">
+            <h1 id="ddz-title" tabindex="-1"></h1>
+            <span class="room-code" id="ddz-code"></span>
+            <span class="room-facts" id="ddz-facts">三人斗地主 · 叫抢加倍 · 每手 25 秒</span>
+          </div>
+          <div class="room-bar-end">
+            <span class="watch-badge" id="ddz-watch-badge" hidden><svg class="icon"><use href="#i-eye"/></svg>观战中</span>
+            <span class="room-meta" id="ddz-spectators"><svg class="icon"><use href="#i-eye"/></svg><span>0 人观战</span></span>
+            <button class="btn btn-quiet" id="ddz-watch-invite" type="button" data-action="watch-invite"><svg class="icon"><use href="#i-eye"/></svg>邀请观战</button>
+            <button class="btn btn-gold-flat" id="ddz-invite" type="button" data-action="invite"><svg class="icon"><use href="#i-link"/></svg><span>复制邀请</span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="wrap ddz-grid">
+        <section class="felt-wrap" aria-label="牌桌">
+          <div class="table-bar">
+            <span class="chip" id="ddz-state"><i></i><span>等待开局</span></span>
+            <span class="multiplier" id="ddz-multiplier" title="当前公共倍数">倍数 <b>×1</b></span>
+            <span class="table-note" id="ddz-note"></span>
+            <button class="pill-toggle" id="ddz-counter-toggle" type="button" data-action="ddz-counter" aria-pressed="true"><svg class="icon"><use href="#i-cards"/></svg>记牌器</button>
+            <button class="pill-toggle" id="ddz-barrage-toggle" type="button" data-action="ddz-barrage" aria-pressed="true"><svg class="icon"><use href="#i-barrage"/></svg>弹幕</button>
+            <button class="pill-toggle chat-jump" type="button" data-action="ddz-chat"><svg class="icon"><use href="#i-message"/></svg><span id="ddz-chat-jump">对话</span></button>
+          </div>
+          <div class="felt" id="felt">
+            <div class="counter" id="ddz-counter" hidden></div>
+            <div class="opponent opponent-left" id="ddz-left"></div>
+            <div class="felt-center">
+              <div class="bottom-cards" id="ddz-bottom" aria-label="底牌"></div>
+              <div class="table-message" id="ddz-message" role="status"></div>
+            </div>
+            <div class="opponent opponent-right" id="ddz-right"></div>
+            <div class="play-zone play-left" id="ddz-play-left" aria-live="polite"></div>
+            <div class="play-zone play-right" id="ddz-play-right" aria-live="polite"></div>
+            <div class="play-zone play-self" id="ddz-play-self"></div>
+            <div class="self-bar" id="ddz-self"></div>
+            <div class="action-bar" id="ddz-actions" role="group" aria-label="出牌操作"></div>
+            <div class="hand" id="ddz-hand" role="group" aria-label="我的手牌"></div>
+            <div class="barrage" id="ddz-barrage" aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <aside class="card chat" id="ddz-chat" aria-labelledby="ddz-chat-title">
+          <div class="chat-head">
+            <svg class="icon" aria-hidden="true"><use href="#i-message"/></svg>
+            <h2 id="ddz-chat-title">牌桌对话</h2>
+            <span>保留最近 40 条</span>
+          </div>
+          <p class="chat-empty" id="ddz-chat-empty">玩家和观众都可以在这里发消息，新消息会以弹幕飘过牌桌。</p>
+          <div class="chat-log" id="ddz-chat-log" role="log" aria-labelledby="ddz-chat-title" tabindex="0" hidden></div>
+          <div class="quick-talk" id="ddz-quick-talk" hidden>
+            <div class="emotes" id="ddz-emotes"></div>
+            <div class="phrases" id="ddz-phrases"></div>
+          </div>
+          <form class="chat-form" id="ddz-chat-form">
+            <button class="icon-btn" id="ddz-quick-toggle" type="button" data-action="ddz-quick-talk" aria-expanded="false" aria-controls="ddz-quick-talk" title="常用语与表情"><svg class="icon"><use href="#i-smile"/></svg></button>
+            <input id="ddz-chat-input" type="text" maxlength="160" placeholder="和牌友聊两句" aria-label="输入牌桌消息" autocomplete="off" required>
+            <button class="btn btn-gold-flat" type="submit" data-network>发送</button>
+          </form>
+        </aside>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span class="footer-brand">弈间 · 在线五子棋</span>
+      <span class="footer-brand">弈间 · 五子棋 · 斗地主</span>
       <button class="text-link" type="button" data-action="rules">游戏规则</button>
       <button class="text-link" type="button" data-action="ranking">今日排行</button>
     </div>
@@ -302,7 +543,11 @@
       <div class="rank-hero">
         <div class="modal-head">
           <h2 id="ranking-title" tabindex="-1">今日排行榜</h2>
-          <span class="rank-reset">北京时间 00:00 重置 · 胜 +1 负 −1 和 0</span>
+          <span class="rank-reset" id="rank-reset">北京时间 00:00 重置 · 胜 +1 负 −1 和 0</span>
+          <div class="segmented segmented-sm rank-switch" role="group" aria-label="选择游戏">
+            <button type="button" data-action="rank-game" data-game="gomoku" aria-pressed="true">五子棋</button>
+            <button type="button" data-action="rank-game" data-game="ddz" aria-pressed="false">斗地主</button>
+          </div>
           <button class="icon-btn" type="button" data-action="close-ranking" aria-label="关闭排行榜"><svg class="icon"><use href="#i-close"/></svg></button>
         </div>
         <div class="podium" id="podium" hidden></div>
@@ -311,7 +556,7 @@
       <button class="btn btn-line rank-retry" id="ranking-retry" type="button" hidden>重试</button>
       <div class="rank-table" id="ranking-table" hidden>
         <table aria-label="今日棋手积分">
-          <thead><tr><th scope="col">排名</th><th scope="col">棋手</th><th scope="col">胜</th><th scope="col">负</th><th scope="col">积分</th></tr></thead>
+          <thead><tr id="ranking-head"><th scope="col">排名</th><th scope="col">棋手</th><th scope="col">胜</th><th scope="col">负</th><th scope="col">积分</th></tr></thead>
           <tbody id="ranking-rows"></tbody>
         </table>
       </div>
@@ -345,6 +590,24 @@
       <div class="result-actions">
         <button class="btn btn-gold btn-lg" type="button" data-action="undo-accept" data-network>同意</button>
         <button class="btn btn-line btn-lg" type="button" data-action="undo-reject" data-network>拒绝</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="ddz-result-dialog" class="modal modal-result" aria-labelledby="ddz-result-title" aria-describedby="ddz-result-copy">
+    <div class="modal-body">
+      <button class="icon-btn result-close" type="button" data-action="ddz-close-result" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+      <span class="result-seal" id="ddz-result-seal" aria-hidden="true">胜</span>
+      <h2 id="ddz-result-title"></h2>
+      <p id="ddz-result-copy"></p>
+      <table class="settle" aria-label="本局结算">
+        <thead><tr><th scope="col">玩家</th><th scope="col">身份</th><th scope="col">加倍</th><th scope="col">积分</th></tr></thead>
+        <tbody id="ddz-result-rows"></tbody>
+      </table>
+      <p class="settle-factors" id="ddz-result-factors"></p>
+      <div class="result-actions">
+        <button class="btn btn-gold btn-lg" id="ddz-result-again" type="button" data-action="ddz-again" data-network><b>再来一局</b><small id="ddz-result-again-note">准备下一局</small></button>
+        <button class="btn btn-line btn-lg" type="button" data-action="ddz-close-result">查看牌局</button>
       </div>
     </div>
   </dialog>

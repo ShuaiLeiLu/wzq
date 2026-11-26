@@ -8,7 +8,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
-use crate::ranking::{ChampionBroadcast, RankedMatch, RankedPlayer, RankedResult};
+use crate::{
+    ddz::room::DdzRoom,
+    ranking::{ChampionBroadcast, DdzResult, RankedMatch, RankedPlayer, RankedResult},
+};
 
 const SIZE: usize = 15;
 const TURN_MS: u64 = 30_000;
@@ -37,10 +40,10 @@ pub struct Challenge {
 
 pub struct Player {
     guest_name: String,
-    name: String,
-    room: Option<String>,
-    ready: bool,
-    connection: Option<(u64, watch::Sender<String>)>,
+    pub(crate) name: String,
+    pub(crate) room: Option<String>,
+    pub(crate) ready: bool,
+    pub(crate) connection: Option<(u64, watch::Sender<String>)>,
     expires: u64,
     last_message: Option<u64>,
     account: Option<String>,
@@ -298,14 +301,14 @@ fn winning_line(board: &[u8], index: usize, color: u8) -> Vec<usize> {
 }
 
 #[derive(Serialize)]
-struct Message {
-    id: u64,
-    name: String,
-    text: String,
-    seat: i8,
+pub(crate) struct Message {
+    pub(crate) id: u64,
+    pub(crate) name: String,
+    pub(crate) text: String,
+    pub(crate) seat: i8,
 }
 
-const SYSTEM_SEAT: i8 = -2;
+pub(crate) const SYSTEM_SEAT: i8 = -2;
 
 struct Handicap {
     giver: String,
@@ -398,15 +401,18 @@ pub struct Store {
     next_connection: u64,
     ranked_results: UnboundedSender<RankedResult>,
     champion: Option<ChampionBroadcast>,
+    pub(crate) tables: Vec<DdzRoom>,
+    pub(crate) ddz_results: Option<UnboundedSender<DdzResult>>,
+    ddz_champion: Option<ChampionBroadcast>,
 }
 
-fn random_token(bytes: usize) -> String {
+pub(crate) fn random_token(bytes: usize) -> String {
     let mut data = vec![0; bytes];
     OsRng.fill_bytes(&mut data);
     data.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn clean_name(input: Option<&str>, limit: usize) -> String {
+pub(crate) fn clean_name(input: Option<&str>, limit: usize) -> String {
     let clean = input
         .unwrap_or_default()
         .replace(|ch: char| ch.is_ascii_control(), "");
@@ -432,6 +438,9 @@ impl Store {
             next_connection: 0,
             ranked_results,
             champion: None,
+            tables: DdzRoom::permanent_tables(),
+            ddz_results: None,
+            ddz_champion: None,
         }
     }
 
@@ -443,11 +452,21 @@ impl Store {
         self.rooms.iter().position(|room| room.id == id)
     }
 
+    /// Gomoku rooms and Dou Dizhu tables share one set of room numbers.
+    pub(crate) fn free_room_id(&self) -> String {
+        loop {
+            let id = OsRng.gen_range(2000..10000).to_string();
+            if self.room_index(&id).is_none() && self.table_index(&id).is_none() {
+                break id;
+            }
+        }
+    }
+
     fn current_room(&self, token: &str) -> Option<usize> {
         self.room_index(self.players.get(token)?.room.as_deref()?)
     }
 
-    fn profile(&self, player: &Player) -> Option<&Profile> {
+    pub(crate) fn profile(&self, player: &Player) -> Option<&Profile> {
         self.accounts
             .get(player.account.as_deref()?)
             .map(|account| &account.profile)
@@ -559,6 +578,9 @@ impl Store {
             "me": {"name": player.name, "account": self.profile(player)},
             "serverTime": self.now(),
             "champion": self.champion,
+            "ddzChampion": self.ddz_champion,
+            "tables": self.table_summaries(),
+            "table": self.table_snapshot(token),
             "online": self.players.values().filter(|player| player.connection.is_some()).count(),
             "rooms": self.rooms.iter().map(|room| json!({ "id": room.id, "name": room.name, "theme": room.theme,
                 "count": room.count(), "joinable": room.joinable(), "watchable": room.watchable(), "playing": room.playing() })).collect::<Vec<_>>(),
@@ -592,6 +614,17 @@ impl Store {
         }
     }
 
+    pub fn set_ddz_champion(&mut self, champion: ChampionBroadcast) {
+        if !champion.expired() && self.ddz_champion.as_ref() != Some(&champion) {
+            self.ddz_champion = Some(champion);
+            self.publish(None);
+        }
+    }
+
+    pub fn attach_ddz_results(&mut self, results: UnboundedSender<DdzResult>) {
+        self.ddz_results = Some(results);
+    }
+
     pub fn connect(&mut self, token: &str) -> (u64, watch::Receiver<String>) {
         self.next_connection += 1;
         let connection = self.next_connection;
@@ -602,6 +635,9 @@ impl Store {
             .connection = Some((connection, sender));
         if let Some(index) = self.current_room(token) {
             self.sync_room(index);
+        }
+        if let Some(index) = self.current_table(token) {
+            self.sync_table(index);
         }
         self.publish(None);
         (connection, receiver)
@@ -680,6 +716,15 @@ impl Store {
         if dirty {
             self.champion = None;
         }
+        if self
+            .ddz_champion
+            .as_ref()
+            .is_some_and(ChampionBroadcast::expired)
+        {
+            self.ddz_champion = None;
+            dirty = true;
+        }
+        dirty |= self.tick_tables(now);
         for room in &mut self.rooms {
             if let Some(game) = &mut room.game {
                 dirty |= game.expire(now);
@@ -714,7 +759,11 @@ impl Store {
         }
     }
 
-    fn leave(&mut self, token: &str) {
+    pub(crate) fn leave(&mut self, token: &str) {
+        if let Some(index) = self.current_table(token) {
+            self.leave_table(token, index);
+            return;
+        }
         let Some(index) = self.current_room(token) else {
             return;
         };
@@ -757,7 +806,7 @@ impl Store {
             if room.spectators.contains(token) {
                 return Ok(());
             }
-            if current.is_some() {
+            if current.is_some() || self.players[token].room.is_some() {
                 return Err("请先退出当前房间。");
             }
             if !room.watchable() {
@@ -768,7 +817,8 @@ impl Store {
             if room.seat(token).is_some() {
                 return Ok(());
             }
-            if current.is_some_and(|current| current != index) {
+            let elsewhere = self.players[token].room.as_deref() != Some(room.id.as_str());
+            if elsewhere && self.players[token].room.is_some() {
                 return Err("请先退出当前房间。");
             }
             if !room.joinable() {
@@ -790,12 +840,13 @@ impl Store {
         Ok(())
     }
 
-    fn send_message(
+    /// Checks a chat line and the sender's rate limit; returns the sender's
+    /// name and the cleaned text.
+    pub(crate) fn chat_line(
         &mut self,
         token: &str,
-        index: usize,
         text: Option<&str>,
-    ) -> Result<String, Failure> {
+    ) -> Result<(String, String), Failure> {
         let now = self.now();
         let text = text
             .unwrap_or_default()
@@ -809,14 +860,26 @@ impl Store {
             return Err("请稍等一秒再发送。");
         }
         player.last_message = Some(now);
-        let name = player.name.clone();
+        Ok((player.name.clone(), text.into()))
+    }
+
+    fn send_message(
+        &mut self,
+        token: &str,
+        index: usize,
+        text: Option<&str>,
+    ) -> Result<String, Failure> {
+        let (name, text) = self.chat_line(token, text)?;
         let room = &mut self.rooms[index];
         let seat = room.seat(token).map_or(-1, |seat| seat as i8);
-        room.post(name, text.into(), seat);
+        room.post(name, text, seat);
         Ok(room.id.clone())
     }
 
     pub fn command(&mut self, token: &str, data: &Value) -> Result<Option<String>, Failure> {
+        if let Some(result) = self.ddz_command(token, data) {
+            return result;
+        }
         let current = self.current_room(token);
         let action = data["action"].as_str();
         match action {
@@ -838,12 +901,7 @@ impl Store {
                 if self.rooms.len() >= 100 {
                     return Err("房间数量已达上限，请稍后再试。");
                 }
-                let id = loop {
-                    let id = OsRng.gen_range(2000..10000).to_string();
-                    if self.room_index(&id).is_none() {
-                        break id;
-                    }
-                };
+                let id = self.free_room_id();
                 let name = clean_name(data["name"].as_str(), 20);
                 let name = if name.is_empty() {
                     format!("{}的棋室", self.players[token].name)

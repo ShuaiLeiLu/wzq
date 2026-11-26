@@ -1,4 +1,8 @@
+import { createDdz } from './ddz.js';
+
 const $ = selector => document.querySelector(selector);
+const PATHS = { hub: '/', gomoku: '/wzq', ddz: '/ddz' };
+const GAME_NAMES = { gomoku: '五子棋', ddz: '斗地主' };
 
 const TURN_MS = 30_000;
 const SIZE = 15;
@@ -46,7 +50,10 @@ const el = {
   rankingRetry: $('#ranking-retry'),
   podium: $('#podium'),
   result: $('#result-dialog'),
-  navLobby: $('#nav-lobby')
+  navLobby: $('#nav-lobby'),
+  hub: $('#hub'),
+  ddzLobby: $('#ddz-lobby'),
+  ddzView: $('#ddz-view')
 };
 
 let state = null;
@@ -67,6 +74,13 @@ let lastGameKey = null;
 let sideRankingTimer;
 let rankingTimer;
 let rankingPending = false;
+let rankingGame = 'gomoku';
+let hubRankingTimer;
+let view = viewFromPath();
+let knownRoom = null;
+let knownTable = null;
+let visibleKey = null;
+let atTable = false;
 const pending = new Set();
 const barrageQueue = [];
 const points = [];
@@ -76,6 +90,15 @@ let requestedRoom = linkParams.get('room');
 const linkedAction = linkParams.get('view') === 'watch' ? 'watch' : 'join';
 
 /* ---------- Helpers ---------- */
+
+function viewFromPath() {
+  const path = location.pathname.replace(/\/+$/, '');
+  return path === '/ddz' ? 'ddz' : path === '/wzq' ? 'gomoku' : 'hub';
+}
+
+function serverNow() {
+  return state ? state.serverTime + performance.now() - syncedAt : 0;
+}
 
 function icon(name) {
   return `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -233,6 +256,7 @@ async function connect(identity) {
 
 function syncURL(id, watching = false) {
   const url = new URL(location.href);
+  url.pathname = PATHS[view];
   if (id) url.searchParams.set('room', id);
   else url.searchParams.delete('room');
   if (watching) url.searchParams.set('view', 'watch');
@@ -248,8 +272,10 @@ function renderHeader() {
   setText(online.querySelector('span'), connected ? `${state.online} 位在线` : state ? '正在重连' : '正在连接');
   for (const button of document.querySelectorAll('[data-network]')) button.disabled = !connected;
 
-  const winner = state?.champion?.winner;
+  const game = view === 'ddz' || (view === 'hub' && !state?.champion?.winner) ? 'ddz' : 'gomoku';
+  const winner = (game === 'ddz' ? state?.ddzChampion : state?.champion)?.winner;
   $('#champion').hidden = !winner;
+  setText($('#champion-label'), `昨日${GAME_NAMES[game]}榜首`);
   if (winner) {
     setHTML($('#champion-text'), `恭喜 <b>${escapeHTML(winner.name)}</b> 拿下昨日第一`);
     setText($('#champion-score'), `${scoreText(winner.points)} 分`);
@@ -344,8 +370,8 @@ function ownRankText(ranking) {
   return ranking.you ? `你今日第 <b>${ranking.you.rank}</b> 名 · ${scoreText(ranking.you.points)} 分` : '今天还没有计分对局';
 }
 
-async function refreshSideRanking() {
-  const list = $('#side-rank-list');
+async function refreshSideRanking(listId = '#side-rank-list', ownId = '#side-rank-own') {
+  const list = $(listId);
   try {
     const ranking = await fetchRanking();
     const rows = ranking.entries.slice(0, 5).map(row => `<li class="${row.rank === 1 ? 'top' : ''}">
@@ -355,7 +381,7 @@ async function refreshSideRanking() {
       <span class="points${row.points < 0 ? ' negative' : ''}">${scoreText(row.points)}</span>
     </li>`).join('');
     setHTML(list, rows || '<li class="rank-empty">今天还没有棋手上榜，下一局就是你的。</li>');
-    setHTML($('#side-rank-own'), ownRankText(ranking));
+    if (ownId) setHTML($(ownId), ownRankText(ranking));
   } catch {
     setHTML(list, '<li class="rank-empty">暂时无法读取排行榜。</li>');
   }
@@ -369,6 +395,34 @@ function watchSideRanking(active) {
     clearInterval(sideRankingTimer);
     sideRankingTimer = null;
   }
+}
+
+function watchHubRanking(active) {
+  const refresh = () => {
+    refreshSideRanking('#hub-rank-gomoku', null);
+    ddz.refreshHubRanking();
+  };
+  if (active && !hubRankingTimer) {
+    refresh();
+    hubRankingTimer = setInterval(() => { if (!document.hidden) refresh(); }, 30_000);
+  } else if (!active && hubRankingTimer) {
+    clearInterval(hubRankingTimer);
+    hubRankingTimer = null;
+  }
+}
+
+function renderHub() {
+  if (!state) return;
+  const rooms = state.rooms;
+  const tables = state.tables;
+  const gomokuPlaying = rooms.filter(room => room.playing).length;
+  const ddzPlaying = tables.filter(room => room.playing).length;
+  setText($('#hub-stat-online'), String(state.online));
+  setText($('#hub-stat-playing'), String(gomokuPlaying + ddzPlaying));
+  const gomokuOpen = rooms.filter(room => room.joinable).length;
+  const ddzWaiting = tables.filter(room => room.joinable && room.humans > 0).length;
+  setText($('#hub-gomoku-chip span'), gomokuPlaying ? `${gomokuPlaying} 局对弈中` : `${gomokuOpen} 间可入座`);
+  setText($('#hub-ddz-chip span'), ddzPlaying ? `${ddzPlaying} 桌对局中` : ddzWaiting ? `${ddzWaiting} 桌等人` : '机器人随时补位');
 }
 
 /* ---------- Board ---------- */
@@ -696,37 +750,90 @@ function renderResult(room) {
   $('#result-again').hidden = watching;
   setText($('#result-again').querySelector('b'), pair ? '再来一局' : '准备下一局');
   setText($('#result-again-note'), pair ? '原班续局交换黑白' : '等待新棋友入座');
-  if (![el.dialog, el.auth, el.ranking, el.result, el.undoDialog].some(node => node.open)) el.result.showModal();
+  if (!anyDialogOpen()) el.result.showModal();
 }
 
 /* ---------- Render ---------- */
 
-function render() {
-  renderHeader();
-  const room = state?.room;
-  el.lobby.hidden = Boolean(room);
-  el.roomView.hidden = !room;
-  if (room) el.navLobby.removeAttribute('aria-current');
-  else el.navLobby.setAttribute('aria-current', 'page');
-  watchSideRanking(Boolean(state) && !room);
+function anyDialogOpen() {
+  return [el.dialog, el.auth, el.ranking, el.result, el.undoDialog, ddz.resultDialog].some(node => node.open);
+}
 
-  if (room) renderRoom(room);
-  else renderLobby();
+function switchView(next, push = true) {
+  if (next === view) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  view = next;
+  if (push) {
+    const room = view === 'gomoku' ? state?.room : view === 'ddz' ? state?.table : null;
+    const url = new URL(PATHS[view], location.href);
+    if (room) url.searchParams.set('room', room.id);
+    if (room?.seat === -1) url.searchParams.set('view', 'watch');
+    history.pushState(null, '', url);
+  }
+  render();
+  window.scrollTo(0, 0);
+}
+
+function render() {
+  const room = state?.room ?? null;
+  const table = state?.table ?? null;
+  // Sitting down anywhere (a link, a room number, quick play) brings that game forward.
+  if (room?.id && room.id !== knownRoom) view = 'gomoku';
+  if (table?.id && table.id !== knownTable) view = 'ddz';
+  knownRoom = room?.id ?? null;
+  knownTable = table?.id ?? null;
+  renderHeader();
+
+  const showRoom = view === 'gomoku' && room;
+  const showTable = view === 'ddz' && table;
+  el.hub.hidden = view !== 'hub';
+  el.lobby.hidden = view !== 'gomoku' || Boolean(room);
+  el.roomView.hidden = !showRoom;
+  el.ddzLobby.hidden = view !== 'ddz' || Boolean(table);
+  el.ddzView.hidden = !showTable;
+  for (const [game, node] of [['hub', '#nav-hub'], ['gomoku', '#nav-lobby'], ['ddz', '#nav-ddz']]) {
+    if (game === view) $(node).setAttribute('aria-current', 'page');
+    else $(node).removeAttribute('aria-current');
+  }
+  const away = (room && view !== 'gomoku') ? room : (table && view !== 'ddz') ? table : null;
+  $('#elsewhere').hidden = !away;
+  if (away) setText($('#elsewhere-text'), `你还在${room ? '五子棋' : '斗地主'}「${away.name}」#${away.id}${away.seat === -1 ? '观战' : ''}`);
+
+  const live = Boolean(state);
+  watchSideRanking(live && view === 'gomoku' && !room);
+  ddz.watchSide(live && view === 'ddz' && !table);
+  watchHubRanking(live && view === 'hub');
+
+  if (showRoom) renderRoom(room);
+  else if (view === 'gomoku') renderLobby();
+  if (showTable) ddz.renderTable(table);
+  else if (view === 'ddz') ddz.renderLobby();
+  if (view === 'hub') renderHub();
   renderClock();
 
-  const id = room?.id ?? null;
-  if (id || visibleRoom) syncURL(id, room?.seat === -1);
-  if (id !== visibleRoom) {
+  const shown = showRoom ? room : showTable ? table : null;
+  const id = shown?.id ?? null;
+  if (!requestedRoom && (id || visibleRoom)) syncURL(id, shown?.seat === -1);
+  if (!room) {
+    delete el.chatLog.dataset.room;
+    lastGameKey = null;
+    if (el.result.open) el.result.close();
+  }
+  if (table) atTable = true;
+  else if (atTable) {
+    atTable = false;
+    ddz.leaveTable();
+  }
+  const key = `${view}:${id ?? ''}`;
+  if (id !== visibleRoom || key !== visibleKey) {
+    const entered = id && id !== visibleRoom;
     visibleRoom = id;
-    if (!id) {
-      delete el.chatLog.dataset.room;
-      clearBarrage();
-      lastGameKey = null;
-      if (el.result.open) el.result.close();
-    }
+    visibleKey = key;
+    if (!room) clearBarrage();
     window.scrollTo(0, 0);
-    if (id && !el.dialog.open) $('#room-title').focus({ preventScroll: true });
-    else if (!id) el.navLobby.focus({ preventScroll: true });
+    if (entered && !el.dialog.open) $(showTable ? '#ddz-title' : '#room-title').focus({ preventScroll: true });
   }
 }
 
@@ -739,6 +846,16 @@ const prompts = {
   rules: {
     title: '游戏规则',
     copy: '<p>弈间使用自由五子棋规则，棋盘 15 × 15。</p><ul><li>双方点击「准备」后自动开局。首局随机分配黑白，原班两人续局交换黑白，换棋手后重新抽签。</li><li>黑棋先行，双方轮流在空交叉点落一子。每手限时 30 秒，超时判负。</li><li>横、竖或斜线连成五颗或更多同色棋子即获胜；棋盘下满无人连五则为和棋。</li><li>让子：开局前由让方在棋室选择「让先 / 让二子 / 让三子」，被让方固定执黑。让二子、三子会先在 H8、I9（三子再加 G9）摆好黑子，由白棋先走。修改让子会取消双方准备，重新准备即视为同意；有人离座则恢复不让。让子局不计入排行。</li><li>悔棋：自己落子后、对方落子前，可申请撤回自己的上一手，需对方同意，10 秒未回应视为拒绝，等待期间暂停计时。同意后由你重新落子并重新计时。每人每局可申请 3 次，被拒绝的同一手不能再申请。</li><li>登录智算账号后对局计入每日排行：胜 +1、负 −1、和棋不变，北京时间 00:00 重置。</li><li>棋手断线会暂停计时并保留座位 45 秒，超时未回则判对方获胜。</li></ul>'
+  },
+  'ddz-create': { title: '创建牌桌', copy: '创建后你会直接入座，可以复制链接邀请牌友，人不够时请机器人补位。', label: '牌桌名称（选填）', placeholder: '例如：周五牌局', max: 20, submit: '创建并入座' },
+  'ddz-leave': { title: '离开牌桌？', copy: '牌局正在进行。离开后由托管代打到本局结束，输赢照常结算。', submit: '确认离开' },
+  'ddz-rules': {
+    title: '斗地主规则',
+    copy: '<p>一副 54 张牌，三人一桌，每人 17 张，留 3 张底牌。牌从小到大：3 4 5 6 7 8 9 10 J Q K A 2 小王 大王。</p><ul><li>叫地主：随机一人先叫。有人叫地主后，之后没说「不叫」的人可以抢地主，最先叫的人最后还能再抢一次。每抢一次倍数 ×2，三家都不叫就重新发牌。地主拿走底牌，底牌所有人可见。</li><li>加倍：定下地主后每人选择是否加倍（×2）。农民加倍只影响自己与地主之间的结算。地主在出第一手前可以明牌（×2）。</li><li>牌型：单张、对子、三张、三带一、三带一对、顺子（5 张起，3 到 A）、连对（3 对起）、飞机（两组以上相连三张，可带同数量的单张或对子）、四带二（两单或两对，不算炸弹）、炸弹（四张相同）、王炸（大小王）。</li><li>出牌：地主先出。跟牌须同牌型、同张数且更大；炸弹压一切非炸弹，大炸弹压小炸弹，王炸最大。每打出一个炸弹或王炸，倍数 ×2。</li><li>春天：地主出完而农民一张未出；反春：农民获胜而地主只出过一手。各 ×2。</li><li>结算：每位农民的输赢 = 底分 1 × 公共倍数 × 地主加倍 × 本人加倍，单人封顶 64 分，地主输赢为两位农民之和。</li><li>叫地主和加倍限时 15 秒，出牌限时 25 秒。超时或断线自动托管，可随时取消托管。</li><li>三位真人入座、至少一人登录智算账号时计入每日积分榜；有机器人的局和人机练习不计排行。</li></ul>'
+  },
+  'hub-rules': {
+    title: '游戏规则',
+    copy: '<p>弈间有两款游戏，进入对应大厅后点「游戏规则」可查看完整规则。</p><ul><li>五子棋：15 × 15 棋盘，黑棋先行，每手 30 秒，横竖斜任一方向先连成五子者胜。支持让子和悔棋。</li><li>斗地主：三人一桌，叫地主、抢地主、加倍，炸弹和王炸翻倍，先出完手牌的一方获胜。人不够时可以请机器人补位。</li><li>登录智算账号后，五子棋对局和三人真人斗地主计入每日排行，北京时间 00:00 重置。</li></ul>'
   },
   invite: { title: '邀请棋友', copy: '复制下面的链接发送给好友，打开即可入座。', label: '房间邀请链接' },
   'watch-invite': { title: '邀请观战', copy: '好友打开链接后会进入观战视角。', label: '房间观战链接' }
@@ -763,7 +880,7 @@ function openDialog(action, value = '') {
   el.dialogSubmit.hidden = !prompt.submit;
   el.dialogSubmit.disabled = false;
   el.dialogSubmit.textContent = prompt.submit ?? '';
-  for (const node of [el.auth, el.ranking, el.result]) if (node.open) node.close();
+  for (const node of [el.auth, el.ranking, el.result, ddz.resultDialog]) if (node.open) node.close();
   el.dialog.showModal();
   if (prompt.label) {
     el.dialogInput.focus();
@@ -796,8 +913,18 @@ function openAuth() {
   el.authEmail.focus();
 }
 
-function openRanking() {
-  for (const node of [el.dialog, el.auth, el.result]) if (node.open) node.close();
+function setRankingGame(game) {
+  rankingGame = game;
+  for (const option of document.querySelectorAll('[data-action="rank-game"]')) option.setAttribute('aria-pressed', String(option.dataset.game === game));
+  setText($('#rank-reset'), game === 'ddz' ? '北京时间 00:00 重置 · 底分 × 倍数 · 三人真人局计分' : '北京时间 00:00 重置 · 胜 +1 负 −1 和 0');
+  $('#ranking-head').innerHTML = game === 'ddz'
+    ? '<th scope="col">排名</th><th scope="col">玩家</th><th scope="col">局数</th><th scope="col">胜</th><th scope="col">积分</th>'
+    : '<th scope="col">排名</th><th scope="col">棋手</th><th scope="col">胜</th><th scope="col">负</th><th scope="col">积分</th>';
+}
+
+function openRanking(game = view === 'ddz' ? 'ddz' : 'gomoku') {
+  setRankingGame(game);
+  for (const node of [el.dialog, el.auth, el.result, ddz.resultDialog]) if (node.open) node.close();
   el.rankingTable.hidden = true;
   el.rankingOwn.hidden = true;
   el.rankingRetry.hidden = true;
@@ -815,28 +942,35 @@ async function refreshRanking() {
   if (rankingPending) return;
   rankingPending = true;
   try {
-    const ranking = await fetchRanking();
-    if (!el.ranking.open) return;
+    const game = rankingGame;
+    const ranking = game === 'ddz'
+      ? await fetch('/api/ddz/leaderboard', { signal: AbortSignal.timeout(7000) }).then(response => {
+        if (!response.ok) throw new Error('Ranking unavailable');
+        return response.json();
+      })
+      : await fetchRanking();
+    if (!el.ranking.open || game !== rankingGame) return;
     const { entries } = ranking;
+    const record = row => (game === 'ddz' ? `${row.games} 局 ${row.wins} 胜` : `${row.wins} 胜 ${row.losses} 负`);
     const slots = [entries[1], entries[0], entries[2]].map((row, index) => {
       const place = [2, 1, 3][index];
       if (!row) return `<div class="podium-slot p${place} empty-slot" aria-hidden="true"></div>`;
       return `<div class="podium-slot p${place}">
         <span class="avatar ${tone(row.name)}" aria-hidden="true">${escapeHTML(initial(row.name))}</span>
         <b title="${escapeHTML(row.name)}">${escapeHTML(row.name)}</b>
-        <div class="podium-block"><strong>${row.rank}</strong><small>${scoreText(row.points)} 分 · ${row.wins} 胜 ${row.losses} 负</small></div>
+        <div class="podium-block"><strong>${row.rank}</strong><small>${scoreText(row.points)} 分 · ${record(row)}</small></div>
       </div>`;
     }).join('');
     setHTML(el.podium, slots);
     el.podium.hidden = !entries.length;
-    $('#ranking-rows').innerHTML = entries.slice(3).map(row => `<tr><td>${row.rank}</td><th scope="row" title="${escapeHTML(row.name)}">${escapeHTML(row.name)}</th><td>${row.wins}</td><td>${row.losses}</td><td class="points${row.points < 0 ? ' negative' : ''}">${scoreText(row.points)}</td></tr>`).join('');
+    $('#ranking-rows').innerHTML = entries.slice(3).map(row => `<tr><td>${row.rank}</td><th scope="row" title="${escapeHTML(row.name)}">${escapeHTML(row.name)}</th><td>${game === 'ddz' ? row.games : row.wins}</td><td>${game === 'ddz' ? row.wins : row.losses}</td><td class="points${row.points < 0 ? ' negative' : ''}">${scoreText(row.points)}</td></tr>`).join('');
     el.rankingTable.hidden = entries.length <= 3;
     el.rankingStatus.hidden = Boolean(entries.length);
-    if (!entries.length) el.rankingStatus.textContent = '今天还没有棋手上榜，下一局就是你的。';
+    if (!entries.length) el.rankingStatus.textContent = game === 'ddz' ? '今天还没有三人真人局计分，组一桌就是你的。' : '今天还没有棋手上榜，下一局就是你的。';
     const account = state?.me?.account;
     el.rankingOwn.hidden = !account;
     el.rankingOwn.innerHTML = ranking.you
-      ? `<span class="you">你</span><span>今日第 <b>${ranking.you.rank}</b> 名 · ${ranking.you.wins} 胜 ${ranking.you.losses} 负</span><span class="points${ranking.you.points < 0 ? ' negative' : ''}">${scoreText(ranking.you.points)}</span>`
+      ? `<span class="you">你</span><span>今日第 <b>${ranking.you.rank}</b> 名 · ${record(ranking.you)}</span><span class="points${ranking.you.points < 0 ? ' negative' : ''}">${scoreText(ranking.you.points)}</span>`
       : '<span class="you">你</span><span>今天还没有计分对局</span>';
     el.rankingRetry.hidden = true;
   } catch {
@@ -853,9 +987,10 @@ async function refreshRanking() {
 }
 
 async function copyInvite(watching) {
-  if (!state?.room) return;
-  const url = new URL('/', location.href);
-  url.searchParams.set('room', state.room.id);
+  const room = view === 'ddz' ? state?.table : state?.room;
+  if (!room) return;
+  const url = new URL(view === 'ddz' ? '/ddz' : '/', location.href);
+  url.searchParams.set('room', room.id);
   if (watching) url.searchParams.set('view', 'watch');
   try {
     await navigator.clipboard.writeText(url.href);
@@ -933,6 +1068,26 @@ $('#code-form').addEventListener('submit', async event => {
   if (await run('join', { id }, showJoinError)) el.joinCode.value = '';
 });
 
+function hubJoinError(message) {
+  const node = $('#hub-join-error');
+  node.textContent = message;
+  node.hidden = !message;
+  $('#hub-join-code').setAttribute('aria-invalid', String(Boolean(message)));
+}
+$('#hub-join-code').addEventListener('input', () => hubJoinError(''));
+$('#hub-code-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const input = $('#hub-join-code');
+  const id = input.value.trim();
+  if (!/^\d{4}$/.test(id)) {
+    hubJoinError('请输入四位房间号。');
+    input.focus();
+    return;
+  }
+  hubJoinError('');
+  if (await run('join', { id }, hubJoinError)) input.value = '';
+});
+
 $('#dialog-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (!dialogAction || !prompts[dialogAction].submit) return;
@@ -940,7 +1095,13 @@ $('#dialog-form').addEventListener('submit', async event => {
   const action = dialogAction;
   el.dialogError.hidden = true;
   el.dialogSubmit.disabled = true;
-  const commands = { create: ['create', { name: field }], profile: ['rename', { name: field }], leave: ['leave'] };
+  const commands = {
+    create: ['create', { name: field }],
+    'ddz-create': ['ddz-create', { name: field }],
+    profile: ['rename', { name: field }],
+    leave: ['leave'],
+    'ddz-leave': ['leave']
+  };
   const [command, data] = commands[action];
   const ok = await run(command, data, message => {
     if (el.dialog.open && action === dialogAction) {
@@ -954,6 +1115,7 @@ $('#dialog-form').addEventListener('submit', async event => {
   el.dialog.close();
   if (action === 'profile') toast('昵称已更新');
   if (action === 'create' && !el.roomView.hidden) $('#room-title').focus({ preventScroll: true });
+  if (action === 'ddz-create' && !el.ddzView.hidden) $('#ddz-title').focus({ preventScroll: true });
 });
 
 document.addEventListener('click', event => {
@@ -961,17 +1123,29 @@ document.addEventListener('click', event => {
   if (!button || button.disabled) return;
   const room = state?.room;
   switch (button.dataset.action) {
+    case 'game':
+      switchView(button.dataset.game);
+      break;
+    case 'back-to-room':
+      switchView(state?.room ? 'gomoku' : 'ddz');
+      break;
+    case 'rank-game':
+      setRankingGame(button.dataset.game);
+      refreshRanking();
+      break;
     case 'lobby':
       if (room?.game?.status === 'playing' && room.seat !== -1) openDialog('leave');
       else if (room) run('leave');
       else window.scrollTo({ top: 0, behavior: 'smooth' });
       break;
     case 'rules':
+      openDialog(view === 'ddz' ? 'ddz-rules' : view === 'hub' ? 'hub-rules' : 'rules');
+      break;
     case 'create':
-      openDialog(button.dataset.action);
+      openDialog('create');
       break;
     case 'ranking':
-      openRanking();
+      openRanking(button.dataset.game);
       break;
     case 'close-ranking':
       el.ranking.close();
@@ -1060,6 +1234,8 @@ document.addEventListener('click', event => {
       try { localStorage.setItem(BARRAGE_KEY, String(enabled)); } catch { /* Keep the preference for this page only. */ }
       break;
     }
+    default:
+      ddz.handle(button.dataset.action, button);
   }
 });
 
@@ -1085,9 +1261,22 @@ el.board.addEventListener('keydown', event => {
 
 /* ---------- Start ---------- */
 
+const ddz = createDdz({
+  $, run, toast, escapeHTML, icon, tone, initial, avatarInner, scoreText, setText, setHTML,
+  state: () => state,
+  connected: () => connected,
+  now: serverNow,
+  openDialog,
+  anyDialogOpen
+});
+window.addEventListener('popstate', () => switchView(viewFromPath(), false));
+
 buildBoard();
 try {
   if (localStorage.getItem(BARRAGE_KEY) === 'false') el.barrageToggle.setAttribute('aria-pressed', 'false');
 } catch { /* Keep the default when storage is unavailable. */ }
-setInterval(renderClock, 150);
+setInterval(() => {
+  renderClock();
+  if (!el.ddzView.hidden) ddz.renderClock();
+}, 150);
 claimStoredIdentity(storage()).then(connect);

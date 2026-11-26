@@ -1,4 +1,5 @@
 mod auth;
+mod ddz;
 mod game;
 mod ranking;
 
@@ -116,6 +117,24 @@ async fn leaderboard(
         .map(Json)
         .map_err(|error| {
             eprintln!("leaderboard read failed: {error}");
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "暂时无法读取今日排行榜，请稍后再试。",
+            )
+        })
+}
+
+async fn ddz_leaderboard(
+    State(app): State<App>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let viewer = app.store.lock().unwrap().account_id(cookie(&headers));
+    app.leaderboard
+        .ddz_standings(viewer)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            eprintln!("dou dizhu leaderboard read failed: {error}");
             ApiError(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "暂时无法读取今日排行榜，请稍后再试。",
@@ -418,8 +437,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "3000".into())
         .parse::<u16>()?;
     let (ranked_results, mut results) = tokio::sync::mpsc::unbounded_channel();
+    let (ddz_results, mut ddz_finished) = tokio::sync::mpsc::unbounded_channel();
+    let mut store = Store::new(ranked_results);
+    store.attach_ddz_results(ddz_results);
     let app = App {
-        store: Arc::new(Mutex::new(Store::new(ranked_results))),
+        store: Arc::new(Mutex::new(store)),
         auth: Sub2Api::new()?,
         leaderboard: Leaderboard::new()?,
     };
@@ -428,8 +450,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut refresh = tokio::time::interval(Duration::from_secs(15));
         refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut unavailable = false;
+        let mut ddz_unavailable = false;
         loop {
             refresh.tick().await;
+            match champion_app.leaderboard.ddz_yesterday_champion().await {
+                Ok(champion) => {
+                    champion_app
+                        .store
+                        .lock()
+                        .unwrap()
+                        .set_ddz_champion(champion);
+                    ddz_unavailable = false;
+                }
+                Err(error) => {
+                    if !ddz_unavailable {
+                        eprintln!("yesterday's dou dizhu champion is unavailable: {error}");
+                    }
+                    ddz_unavailable = true;
+                }
+            }
             match champion_app.leaderboard.yesterday_champion().await {
                 Ok(champion) => {
                     champion_app.store.lock().unwrap().set_champion(champion);
@@ -458,6 +497,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    let ddz_writer = app.leaderboard.clone();
+    tokio::spawn(async move {
+        while let Some(result) = ddz_finished.recv().await {
+            // Give up after a minute so a missing migration cannot pile up results.
+            for attempt in 1..=12 {
+                match ddz_writer.record_ddz(&result).await {
+                    Ok(()) => break,
+                    Err(error) => {
+                        eprintln!("dou dizhu leaderboard write failed ({attempt}/12): {error}");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                }
+            }
+        }
+    });
     let store = app.store.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_millis(100));
@@ -467,13 +521,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             store.lock().unwrap().tick();
         }
     });
+    let page = || async {
+        asset(
+            "text/html; charset=utf-8",
+            include_bytes!("../public/index.html"),
+        )
+    };
     let routes = Router::new()
+        .route("/", get(page))
+        .route("/wzq", get(page))
+        .route("/ddz", get(page))
         .route(
-            "/",
+            "/ddz.js",
             get(|| async {
                 asset(
-                    "text/html; charset=utf-8",
-                    include_bytes!("../public/index.html"),
+                    "text/javascript; charset=utf-8",
+                    include_bytes!("../public/ddz.js"),
                 )
             }),
         )
@@ -499,6 +562,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/healthz", get(|| async { Json(json!({"ok": true})) }))
         .route("/api/session", post(session))
         .route("/api/leaderboard", get(leaderboard))
+        .route("/api/ddz/leaderboard", get(ddz_leaderboard))
         .route("/api/events", get(events))
         .route("/api/action", post(action))
         .route("/api/auth/login", post(login))

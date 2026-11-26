@@ -13,6 +13,7 @@ services:
       - database:/var/lib/postgresql/data
       - ./ops/leaderboard/init.sh:/docker-entrypoint-initdb.d/010-leaderboard.sh:ro
       - ./ops/leaderboard/champion.sql:/docker-entrypoint-initdb.d/020-champion.sql:ro
+      - ./ops/leaderboard/ddz.sql:/docker-entrypoint-initdb.d/030-ddz.sql:ro
       - ./ops/leaderboard/schema.sql:/opt/wzq/schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wzq_owner -d wzq"]
