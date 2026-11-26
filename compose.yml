@@ -1,0 +1,52 @@
+# Local stack: game server + leaderboard (PostgreSQL + PostgREST).
+# Secrets come from .env (see scripts/gen-local-env.sh).
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wzq
+      POSTGRES_USER: wzq_owner
+      POSTGRES_PASSWORD: ${WZQ_DB_OWNER_PASSWORD:?run scripts/gen-local-env.sh}
+      WZQ_DB_AUTH_PASSWORD: ${WZQ_DB_AUTH_PASSWORD:?run scripts/gen-local-env.sh}
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./ops/leaderboard/init.sh:/docker-entrypoint-initdb.d/010-leaderboard.sh:ro
+      - ./ops/leaderboard/champion.sql:/docker-entrypoint-initdb.d/020-champion.sql:ro
+      - ./ops/leaderboard/schema.sql:/opt/wzq/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wzq_owner -d wzq"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  postgrest:
+    image: postgrest/postgrest:v16.5
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgresql://wzq_authenticator:${WZQ_DB_AUTH_PASSWORD}@db:5432/wzq
+      PGRST_DB_SCHEMAS: wzq_api
+      PGRST_JWT_SECRET: ${WZQ_POSTGREST_JWT_SECRET:?run scripts/gen-local-env.sh}
+      PGRST_SERVER_PORT: "3042"
+    # The app shares this network namespace (the server only allows plain HTTP
+    # to PostgREST over loopback), so the game port is published here.
+    ports:
+      - "${WZQ_PORT:-3000}:3000"
+
+  app:
+    build: .
+    restart: unless-stopped
+    network_mode: service:postgrest
+    depends_on:
+      - postgrest
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      WZQ_POSTGREST_ORIGIN: http://127.0.0.1:3042
+      WZQ_POSTGREST_TOKEN: ${WZQ_POSTGREST_TOKEN:?run scripts/gen-local-env.sh}
+
+volumes:
+  database:
