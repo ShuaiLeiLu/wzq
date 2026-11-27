@@ -25,6 +25,7 @@ jobs:
       - name: Check the frontend and Rust server
         run: |
           node --check public/app.js
+          node --test tests/winrate.test.cjs
           node --check public/ddz.js
           node --check public/ddz-fx.js
           node --check public/history.js

@@ -11,10 +11,11 @@ use tokio::sync::{mpsc::UnboundedSender, watch};
 use crate::{
     ddz::room::DdzRoom,
     history::{Archive, Journal},
+    prediction::{Forecast, Position},
     ranking::{ChampionBroadcast, DdzResult, RankedMatch, RankedPlayer, RankedResult},
 };
 
-const SIZE: usize = 15;
+pub(crate) const SIZE: usize = 15;
 const TURN_MS: u64 = 30_000;
 const DISCONNECT_MS: u64 = 45_000;
 const UNDO_MS: u64 = 10_000;
@@ -80,6 +81,13 @@ struct Match {
     handicap: u8,
     undo: Option<UndoRequest>,
     undo_left: [u8; 2],
+    // Entry zero is the starting board, including any preset handicap stones.
+    black_win_history: Vec<Option<u8>>,
+    #[serde(skip)]
+    prediction_id: u64,
+    // Within this match a board uniquely determines the turn, including after an undo.
+    #[serde(skip)]
+    predictions: HashMap<Vec<u8>, Option<Forecast>>,
     #[serde(skip)]
     history: Vec<usize>,
     #[serde(skip)]
@@ -115,6 +123,9 @@ impl Match {
             handicap,
             undo: None,
             undo_left: [UNDO_LIMIT; 2],
+            black_win_history: vec![None],
+            prediction_id: OsRng.next_u64(),
+            predictions: HashMap::new(),
             history: Vec::new(),
             journal: Journal::default(),
             undo_refused: None,
@@ -206,6 +217,12 @@ impl Match {
         self.board[index] = color;
         self.last = Some(index);
         self.history.push(index);
+        self.black_win_history.push(
+            self.predictions
+                .get(&self.board)
+                .and_then(|f| f.as_ref())
+                .map(|f| f.odds.black),
+        );
         self.moves += 1;
         self.line = winning_line(&self.board, index, color);
         if !self.line.is_empty() {
@@ -276,6 +293,7 @@ impl Match {
         );
         if accept {
             let index = self.history.pop().expect("undo needs a played move");
+            self.black_win_history.pop();
             self.board[index] = 0;
             self.moves -= 1;
             self.last = self.history.last().copied();
@@ -297,7 +315,7 @@ impl Match {
     }
 }
 
-fn winning_line(board: &[u8], index: usize, color: u8) -> Vec<usize> {
+pub(crate) fn winning_line(board: &[u8], index: usize, color: u8) -> Vec<usize> {
     let origin = ((index / SIZE) as isize, (index % SIZE) as isize);
     let bounds = 0..SIZE as isize;
     for (dr, dc) in [(0, 1), (1, 0), (1, 1), (1, -1)] {
@@ -426,6 +444,7 @@ pub struct Store {
     rooms: Vec<Room>,
     accounts: HashMap<String, Account>,
     next_connection: u64,
+    prediction_cursor: usize,
     ranked_results: UnboundedSender<RankedResult>,
     champion: Option<ChampionBroadcast>,
     pub(crate) tables: Vec<DdzRoom>,
@@ -464,6 +483,7 @@ impl Store {
             rooms,
             accounts: HashMap::new(),
             next_connection: 0,
+            prediction_cursor: 0,
             ranked_results,
             champion: None,
             tables: DdzRoom::permanent_tables(),
@@ -618,6 +638,7 @@ impl Store {
                     "name": person.name, "ready": person.ready, "online": person.connection.is_some(),
                     "avatar": self.profile(person).map_or("", |profile| profile.avatar.as_str()) }))),
                 "game": room.game, "guidance": room.guidance,
+                "prediction": room.game.as_ref().filter(|g| g.playing()).and_then(|g| g.predictions.get(&g.board)?.as_ref()),
                 "handicap": room.handicap.as_ref().map(|handicap| json!({ "level": handicap.level, "giver": room.seat(&handicap.giver) })),
                 "undoColor": room.game.as_ref().and_then(Match::undo_candidate),
                 "spectatorCount": room.spectators.iter().filter(|name| self.online(name)).count()
@@ -639,6 +660,62 @@ impl Store {
         if !champion.expired() && self.champion.as_ref() != Some(&champion) {
             self.champion = Some(champion);
             self.publish(None);
+        }
+    }
+
+    pub fn next_prediction(&mut self) -> Option<Position> {
+        // Rotate between rooms so a fast game cannot monopolize the shared engine.
+        let count = self.rooms.len();
+        for _ in 0..count {
+            let index = self.prediction_cursor % count;
+            self.prediction_cursor = (index + 1) % count;
+            let room = &mut self.rooms[index];
+            let Some(game) = room.game.as_mut() else {
+                continue;
+            };
+            if !game.playing() || game.predictions.contains_key(&game.board) {
+                continue;
+            }
+            game.predictions.insert(game.board.clone(), None);
+            let previous = game.history.last().and_then(|&i| {
+                let mut before = game.board.clone();
+                before[i] = 0;
+                Some(game.predictions.get(&before)?.as_ref()?.odds)
+            });
+            return Some(Position {
+                room: room.id.clone(),
+                game_id: game.prediction_id,
+                board: game.board.clone(),
+                turn: game.turn,
+                moves: [HANDICAP_STONES[usize::from(game.handicap)], &game.history].concat(),
+                previous,
+            });
+        }
+        None
+    }
+
+    pub fn save_prediction(&mut self, position: &Position, forecast: Forecast) {
+        let Some(index) = self.room_index(&position.room) else {
+            return;
+        };
+        let Some(game) = self.rooms[index].game.as_mut() else {
+            return;
+        };
+        if !game.playing() || game.prediction_id != position.game_id {
+            return;
+        }
+        let current = game.board == position.board && game.turn == position.turn;
+        let moves = &position.moves[HANDICAP_STONES[usize::from(game.handicap)].len()..];
+        let mut trend_changed = false;
+        if game.history.starts_with(moves) {
+            let value = &mut game.black_win_history[moves.len()];
+            trend_changed = *value != Some(forecast.odds.black);
+            *value = Some(forecast.odds.black);
+        }
+        game.predictions
+            .insert(position.board.clone(), Some(forecast));
+        if current || trend_changed {
+            self.publish(Some(&position.room));
         }
     }
 
@@ -1169,6 +1246,58 @@ mod tests {
         store
             .command(token, &json!({"action": "move", "index": index}))
             .unwrap();
+    }
+
+    #[test]
+    fn model_result_follows_the_board_through_moves_and_undo() {
+        let (mut store, first, second) = seated_pair();
+        start(&mut store, [&first, &second]);
+        let (black, white) = colors(&store);
+        let opening = store.next_prediction().unwrap();
+        assert!(store.next_prediction().is_none());
+        play(&mut store, &black, 112);
+        let after_move = store.next_prediction().unwrap();
+        assert_eq!(after_move.turn, 2);
+        let forecast = Forecast {
+            odds: crate::prediction::Odds {
+                black: 60,
+                draw: 5,
+                white: 35,
+            },
+            source: "rapfi",
+            variation: vec![112],
+            nodes: 256,
+            tactic: None,
+            explanation: None,
+        };
+        store.save_prediction(&opening, forecast.clone());
+        assert_eq!(
+            store.rooms[0].game.as_ref().unwrap().black_win_history,
+            [Some(60), None]
+        );
+        let visible =
+            |s: &Store| s.snapshot(&black, &s.players[&black])["room"]["prediction"].clone();
+        assert!(visible(&store).is_null());
+        store.command(&black, &json!({"action":"undo"})).unwrap();
+        store
+            .command(&white, &json!({"action":"undo-reply","accept":true}))
+            .unwrap();
+        assert_eq!(visible(&store)["black"], 60);
+        assert_eq!(
+            store.rooms[0].game.as_ref().unwrap().black_win_history,
+            [Some(60)]
+        );
+        assert!(store.next_prediction().is_none());
+        store.rooms[0]
+            .game
+            .as_mut()
+            .unwrap()
+            .finish(Some(1), "timeout");
+        start(&mut store, [&first, &second]);
+        store.save_prediction(&after_move, forecast);
+        let (new_black, _) = colors(&store);
+        play(&mut store, &new_black, 112);
+        assert!(visible(&store).is_null());
     }
 
     #[test]

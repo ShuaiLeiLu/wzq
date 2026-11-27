@@ -72,6 +72,8 @@ let authBusy = false;
 let authStep = 'credentials';
 let toastTimer;
 let lastGameKey = null;
+let oddsKey = null;
+let oddsWorker = null;
 let sideRankingTimer;
 let rankingTimer;
 let rankingPending = false;
@@ -273,14 +275,17 @@ function renderHeader() {
   setText(online.querySelector('span'), connected ? `${state.online} 位在线` : state ? '正在重连' : '正在连接');
   for (const button of document.querySelectorAll('[data-network]')) button.disabled = !connected;
 
-  const game = view === 'ddz' || (view === 'hub' && !state?.champion?.winner) ? 'ddz' : 'gomoku';
-  const winner = (game === 'ddz' ? state?.ddzChampion : state?.champion)?.winner;
-  $('#champion').hidden = !winner;
-  setText($('#champion-label'), `昨日${GAME_NAMES[game]}榜首`);
-  if (winner) {
-    setHTML($('#champion-text'), `恭喜 <b>${escapeHTML(winner.name)}</b> 拿下昨日第一`);
-    setText($('#champion-score'), `${scoreText(winner.points)} 分`);
-  }
+  const champions = [
+    ['gomoku', state?.champion?.winner],
+    ['ddz', state?.ddzChampion?.winner]
+  ].filter(([game, winner]) => winner && (view === 'hub' || view === game));
+  setHTML($('#champion .champion-inner'), champions.map(([game, winner]) => `
+    <div class="champion-entry">
+      <span class="champion-tag">${icon('crown')}昨日${GAME_NAMES[game]}榜首</span>
+      <p>恭喜 <b>${escapeHTML(winner.name)}</b> 拿下昨日第一</p>
+      <strong class="champion-score">${scoreText(winner.points)} 分</strong>
+    </div>`).join(''));
+  $('#champion').hidden = champions.length === 0;
 
   if (!state) return;
   const { me } = state;
@@ -516,6 +521,85 @@ function renderSeat(node, room, index, isSelf) {
   setText(status, label);
   status.classList.toggle('on', connected && active);
   status.classList.toggle('off', Boolean(person && !person.online));
+}
+
+function renderWinRate(game, forecast) {
+  const panel = $('#win-rate');
+  const trend = $('#odds-history');
+  const history = game?.blackWinHistory ?? [];
+  const trendKey = JSON.stringify(history);
+  if (trend.dataset.history !== trendKey) {
+    trend.dataset.history = trendKey;
+    const values = history.filter(value => value != null);
+    trend.hidden = values.length < 2;
+    if (!trend.hidden) {
+      const parts = history.map((value, i) => value == null ? '' :
+        `${i === 0 || history[i - 1] == null ? 'M' : 'L'}${300 * i / (history.length - 1)},${42 - 0.4 * value}h0.5`);
+      trend.querySelector('path').setAttribute('d', parts.join(' '));
+      setText(trend.querySelector('figcaption'), `黑棋胜率走势　${values[0]}% → ${values.at(-1)}%`);
+    }
+  }
+  const details = $('#odds-details');
+  details.hidden = trend.hidden && !(forecast?.variation?.length || forecast?.tactic || forecast?.explanation);
+  const key = game ? JSON.stringify([game.status, game.winner, game.turn, game.board, forecast]) : null;
+  if (key === oddsKey) return;
+  oddsKey = key;
+  oddsWorker?.terminate();
+  oddsWorker = null;
+  panel.hidden = !game;
+  if (!game) return;
+
+  const bar = $('#odds-bar');
+  const values = $('#odds-values');
+  function show([draw, black, white]) {
+    setText(values, `黑胜 ${black}%　·　和棋 ${draw}%　·　白胜 ${white}%`);
+    bar.style.setProperty('--black', black + '%');
+    bar.style.setProperty('--white', white + '%');
+    bar.style.visibility = 'visible';
+  }
+
+  const finished = game.status === 'finished';
+  const titles = { rapfi: 'Rapfi 引擎胜率', tactic: '战术判定', model: '大模型预测胜率' };
+  setText($('#odds-title'), finished ? '最终结果' : titles[forecast?.source] ?? '实时模拟胜率');
+  const line = forecast?.variation?.map((cell, ply) => {
+    const black = ply % 2 === 0 ? game.turn === 1 : game.turn === 2;
+    return `${black ? '黑' : '白'} ${COLUMNS[cell % SIZE]}${Math.floor(cell / SIZE) + 1}`;
+  }).join(' → ');
+  for (const [selector, text] of [
+    ['#odds-tactic', forecast?.tactic],
+    ['#odds-line', line && `参考变化　${line}`],
+    ['#odds-comment', forecast?.explanation && `大模型解读　${forecast.explanation}`]
+  ]) {
+    const node = $(selector);
+    node.hidden = !text;
+    setText(node, text ?? '');
+  }
+  if (finished) {
+    show([0, 1, 2].map(color => color === (game.winner ?? 0) ? 100 : 0));
+    return;
+  }
+  if (forecast) {
+    show([forecast.draw, forecast.black, forecast.white]);
+    return;
+  }
+
+  bar.style.visibility = 'hidden';
+  setText(values, '正在模拟…');
+  function unavailable() {
+    if (key === oddsKey) setText(values, '本手估算暂不可用');
+  }
+  try {
+    const worker = new Worker('/winrate.js');
+    oddsWorker = worker;
+    worker.onmessage = ({ data }) => {
+      if (worker === oddsWorker) show(data);
+      worker.terminate();
+    };
+    worker.onerror = unavailable;
+    worker.postMessage({ board: game.board, turn: game.turn });
+  } catch {
+    unavailable();
+  }
 }
 
 function renderRoom(room) {
@@ -807,6 +891,7 @@ function render() {
   ddz.watchSide(live && view === 'ddz' && !table);
   watchHubRanking(live && view === 'hub');
 
+  renderWinRate(showRoom ? room.game : null, room?.prediction);
   if (showRoom) renderRoom(room);
   else if (view === 'gomoku') renderLobby();
   if (showTable) ddz.renderTable(table);

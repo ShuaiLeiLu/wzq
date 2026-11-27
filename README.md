@@ -32,6 +32,16 @@ cargo run --locked
 
 观众可以点大厅房间旁的「观战」，也可以打开棋手分享的观战链接。棋盘、倒计时和胜负会实时更新。棋手和观众都能在「棋室对话」中发消息，同房成员会在对话记录中看到新消息。弹幕默认开启，新消息会从棋盘右侧飘入，从左侧飘出。可以从棋盘工具栏开关弹幕。每个棋室保留最近 40 条消息，棋室清空或服务重启后移除。
 
+### 实时胜率
+
+开局、落子和悔棋后，棋盘上方显示黑胜、和棋、白胜百分比。Rust 服务在每个局面先检查一步连五、无法同时封堵的两个连五点和最后一手和棋，再由 Rapfi 用自由五子棋专用的 Mix9svq 网络进行蒙特卡洛树搜索。引擎给出的预期得分包含和棋的半分，服务会扣除这半分并按黑白换算。棋手和观众共享同一次分析。展开「局面分析」可看参考变化和本局黑棋胜率走势，悔棋会收回对应的走势。终局展示裁判判定的实际赛果。
+
+Docker 镜像自带固定版本的 Rapfi 和 15 路自由棋权重。直接用 Cargo 开发时，先运行 `scripts/build-rapfi.sh`（需要 CMake、C++17 编译器、Make 和 curl），再运行 `cargo run --locked`。自定义安装位置可以通过 `WZQ_RAPFI_PATH` 指向可执行文件，配套配置和权重放在它旁边。可用 `cargo test --locked real_engine_reuses_process -- --ignored` 验证真实搜索。
+
+大模型解读可选。在服务端环境（本地 Compose 使用 `.env`）设置 `WZQ_LLM_BASE_URL`（兼容 Chat Completions 的根地址）、`WZQ_LLM_MODEL` 和鉴权所需的 `WZQ_LLM_API_KEY`。服务将棋盘、一步连五点、引擎胜率、参考变化和已有的上一手胜率交给模型生成中文解读。引擎判定优先展示。引擎暂不可用时，已配置的大模型可以单独给出预测；等待期间浏览器先用 100 局快速模拟估算。三种来源在棋盘上分别标注。引擎数值反映给定搜索预算下的判断，本站真人胜率需要另用历史对局校准。
+
+引擎及权重的版本、校验值见 [构建脚本](scripts/build-rapfi.sh)。镜像在 `/opt/rapfi/source` 包含对应源码、作者名单和许可证。搜索集成采用 [Rapfi](https://github.com/dotb1ue/rapfi) 与 [Rapfi Networks](https://github.com/dotb1ue/rapfi-networks)，胜平负与换边处理参考 [AlphaGomoku](https://github.com/MaciejKozarzewski/AlphaGomoku/blob/1f8184044930e6b76ebf21b93643b65669c85ff6/include/alphagomoku/search/Value.hpp)，价值网络结合树搜索的思路见 [AlphaZero_Gomoku](https://github.com/junxiaosong/AlphaZero_Gomoku)。
+
 ## 斗地主
 
 一副 54 张牌，三人一桌，每人 17 张，留 3 张底牌。牌从小到大是 3 到 K、A、2、小王、大王。

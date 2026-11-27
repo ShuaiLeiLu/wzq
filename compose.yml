@@ -49,6 +49,9 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "3000"
+      WZQ_LLM_BASE_URL: ${WZQ_LLM_BASE_URL:-}
+      WZQ_LLM_MODEL: ${WZQ_LLM_MODEL:-}
+      WZQ_LLM_API_KEY: ${WZQ_LLM_API_KEY:-}
       WZQ_POSTGREST_ORIGIN: http://127.0.0.1:3042
       WZQ_POSTGREST_TOKEN: ${WZQ_POSTGREST_TOKEN:?run scripts/gen-local-env.sh}
 

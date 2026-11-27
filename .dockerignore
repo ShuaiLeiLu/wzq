@@ -1,5 +1,6 @@
 target
 data/history-outbox
+.rapfi
 .git
 .env
 ops

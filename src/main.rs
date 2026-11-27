@@ -2,7 +2,9 @@ mod auth;
 mod ddz;
 mod game;
 mod history;
+mod prediction;
 mod ranking;
+mod rapfi;
 
 use std::{
     convert::Infallible,
@@ -451,6 +453,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         archive: archive.clone(),
     };
     tokio::spawn(archive.sync(app.leaderboard.clone()));
+    let model = prediction::Predictor::from_env().unwrap_or_else(|error| {
+        eprintln!("gomoku prediction configuration: {error}");
+        None
+    });
+    tokio::spawn(prediction::run(
+        app.store.clone(),
+        model,
+        rapfi::Rapfi::installed(),
+    ));
     let champion_app = app.clone();
     tokio::spawn(async move {
         let mut refresh = tokio::time::interval(Duration::from_secs(15));
@@ -570,6 +581,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 asset(
                     "text/css; charset=utf-8",
                     include_bytes!("../public/style.css"),
+                )
+            }),
+        )
+        .route(
+            "/winrate.js",
+            get(|| async {
+                asset(
+                    "text/javascript; charset=utf-8",
+                    include_bytes!("../public/winrate.js"),
                 )
             }),
         )

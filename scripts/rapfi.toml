@@ -1,0 +1,19 @@
+[general]
+default_thread_num = 1
+default_tt_size_kb = 4096
+coord_conversion_mode = "none"
+
+[search]
+default_searcher = "mcts"
+max_non_pv_rootmoves_to_print = 1
+
+[model]
+binary_file = "model260809.bin"
+
+[model.evaluator]
+type = "mix9svq"
+draw_ratio = 1.0
+draw_black_winrate = 0.5
+
+[[model.evaluator.weights]]
+weight_file = "mix9svqfreestyle_bsmix.bin.lz4"

@@ -42,11 +42,7 @@
   </svg>
 
   <div class="champion" id="champion" hidden>
-    <div class="wrap champion-inner" role="status" aria-label="排行榜播报">
-      <span class="champion-tag"><svg class="icon"><use href="#i-crown"/></svg><span id="champion-label">昨日榜首</span></span>
-      <p id="champion-text"></p>
-      <strong class="champion-score" id="champion-score"></strong>
-    </div>
+    <div class="wrap champion-inner" role="status" aria-label="排行榜播报"></div>
   </div>
 
   <header class="topbar">
@@ -391,6 +387,20 @@
             <span class="table-note" id="move-count">已落 0 子</span>
             <button class="pill-toggle" id="barrage-toggle" type="button" data-action="barrage" aria-pressed="true"><svg class="icon"><use href="#i-barrage"/></svg>弹幕</button>
             <button class="pill-toggle chat-jump" id="chat-jump" type="button" data-action="chat"><svg class="icon"><use href="#i-message"/></svg><span>对话</span></button>
+          </div>
+          <div class="win-rate" id="win-rate" hidden>
+            <div class="odds-labels"><strong id="odds-title">实时模拟胜率</strong><span id="odds-values" role="status" aria-atomic="true"></span></div>
+            <div id="odds-bar" aria-hidden="true"></div>
+            <details id="odds-details" hidden>
+              <summary>局面分析</summary>
+              <p id="odds-tactic" hidden></p>
+              <p id="odds-line" hidden></p>
+              <p id="odds-comment" hidden></p>
+              <figure id="odds-history" hidden>
+                <figcaption></figcaption>
+                <svg viewBox="0 0 300 44" preserveAspectRatio="none" aria-hidden="true"><path></path></svg>
+              </figure>
+            </details>
           </div>
           <div class="board-frame">
             <div class="wood board-wood">
